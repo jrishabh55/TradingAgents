@@ -11,9 +11,11 @@ Lifecycle:
     cancel   → mark_cancelled → run.cancelled event
 
 Threading: a single ``ThreadPoolExecutor`` shared by the FastAPI app submits
-runs. Default concurrency is 1 (env ``WEBAPP_CONCURRENCY``) — running two
-graphs in parallel would race the on-disk memory log (see FORK_PATCHES.md and
-the architecture plan's "Risks" section).
+runs. ``WEBAPP_CONCURRENCY`` controls the pool size (default 4). Concurrent
+parallelism is safe across users — each user has a private memory log path
+injected by ``apps/api/integrations/graph_factory.py``. Same-user runs are
+serialized through a per-user lock taken inside ``_run_safely`` so two graphs
+from the same user can't race their own log.
 """
 from __future__ import annotations
 
@@ -50,7 +52,7 @@ class _CancelToken:
 
 
 class JobRunner:
-    """Owns the worker pool and the live cancellation tokens."""
+    """Owns the worker pool, per-user serialization locks, and cancel tokens."""
 
     def __init__(
         self,
@@ -66,13 +68,33 @@ class JobRunner:
         )
         self._cancel_tokens: Dict[str, _CancelToken] = {}
         self._tokens_lock = threading.Lock()
+        # Per-user mutex so same-user concurrent runs serialize on the
+        # (user-scoped) memory log. Different users hit different locks and
+        # run in parallel.
+        self._user_locks: Dict[str, threading.Lock] = {}
+        self._user_locks_lock = threading.Lock()
 
-    def submit(self, run_id: str, request: RunRequest) -> None:
+    def _get_user_lock(self, user_id: str) -> threading.Lock:
+        """Return the (lazily-created) lock for ``user_id``."""
+        with self._user_locks_lock:
+            lock = self._user_locks.get(user_id)
+            if lock is None:
+                lock = threading.Lock()
+                self._user_locks[user_id] = lock
+            return lock
+
+    def submit(
+        self,
+        run_id: str,
+        request: RunRequest,
+        *,
+        user_id: str = "anonymous",
+    ) -> None:
         """Hand the run off to the worker pool. Returns immediately."""
         token = _CancelToken()
         with self._tokens_lock:
             self._cancel_tokens[run_id] = token
-        self.executor.submit(self._run_safely, run_id, request, token)
+        self.executor.submit(self._run_safely, run_id, request, token, user_id)
 
     def cancel(self, run_id: str) -> bool:
         with self._tokens_lock:
@@ -87,9 +109,19 @@ class JobRunner:
 
     # ---------- worker entry point ----------
 
-    def _run_safely(self, run_id: str, request: RunRequest, token: _CancelToken) -> None:
+    def _run_safely(
+        self,
+        run_id: str,
+        request: RunRequest,
+        token: _CancelToken,
+        user_id: str,
+    ) -> None:
         try:
-            self._run(run_id, request, token)
+            # Per-user lock: blocks only OTHER runs from the SAME user. Held
+            # for the entire pipeline so the memory log read-modify-write is
+            # serialized within a user. Different users hit different locks.
+            with self._get_user_lock(user_id):
+                self._run(run_id, request, token, user_id)
         except Exception as exc:  # pragma: no cover — defensive
             logger.exception("Runner crashed for run %s", run_id)
             self._fail(run_id, repr(exc), traceback.format_exc())
@@ -97,7 +129,13 @@ class JobRunner:
             with self._tokens_lock:
                 self._cancel_tokens.pop(run_id, None)
 
-    def _run(self, run_id: str, request: RunRequest, token: _CancelToken) -> None:
+    def _run(
+        self,
+        run_id: str,
+        request: RunRequest,
+        token: _CancelToken,
+        user_id: str,
+    ) -> None:
         # Local imports keep the module importable in tests without the upstream
         # graph package fully resolved.
         from apps.api.integrations.graph_factory import build_graph_for_request
@@ -105,9 +143,12 @@ class JobRunner:
 
         translator = ChunkTranslator(run_id, selected_analysts=request.analysts)
 
-        # Build graph + initial state. This may raise if config is invalid; it'll
-        # propagate up to _run_safely and become a run.failed event.
-        graph, init_state, args, stats_handler = build_graph_for_request(request)
+        # Build graph + initial state with per-user memory log. This may raise
+        # if config is invalid; it'll propagate up to _run_safely and become
+        # a run.failed event.
+        graph, init_state, args, stats_handler = build_graph_for_request(
+            request, user_id=user_id
+        )
 
         self.store.mark_running(run_id)
         self._publish(
@@ -272,7 +313,9 @@ _runner: Optional[JobRunner] = None
 def get_runner() -> JobRunner:
     global _runner
     if _runner is None:
-        concurrency = int(os.environ.get("WEBAPP_CONCURRENCY", "1"))
+        # Default 4: safe across users now that each has their own memory log.
+        # Same-user runs are serialized by the per-user lock inside the runner.
+        concurrency = int(os.environ.get("WEBAPP_CONCURRENCY", "4"))
         _runner = JobRunner(store=get_store(), bus=get_bus(), concurrency=concurrency)
     return _runner
 

@@ -107,7 +107,7 @@ def create_run(
         request_hash=req_hash,
         user_id=user_id,
     )
-    get_runner().submit(run_id, request)
+    get_runner().submit(run_id, request, user_id=user_id)
 
     detail = store.get_run(run_id)
     if detail is None:  # pragma: no cover

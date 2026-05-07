@@ -23,9 +23,9 @@ services:
       # Per-run Markdown archive on the volume — every completed run writes a
       # file here so users have a transparent on-disk history.
       WEBAPP_REPORTS_DIR: /home/appuser/.tradingagents/webapp_reports
-      # Single worker by default — concurrent runs would race the on-disk
-      # memory log. Bump only if you've thought through the consequences.
-      WEBAPP_CONCURRENCY: "1"
+      # Worker pool size. Default 4 — safe across users (per-user memory
+      # log + per-user serialization in the runner; see apps/api/jobs/runner.py).
+      WEBAPP_CONCURRENCY: "4"
       # Optional bearer-token gate (leave empty for open local-only deploys).
       # NOTE: Clerk JWT auth supersedes this when CLERK_JWKS_URL is set.
       WEBAPP_AUTH_TOKEN: ""

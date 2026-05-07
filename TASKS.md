@@ -97,7 +97,9 @@ Currently `webapp/app.py:79-90` uses a single shared bearer token via `WEBAPP_AU
 
 ---
 
-## 4. Per-user concurrency + memory-log isolation
+## 4. Per-user concurrency + memory-log isolation ✅ DONE
+
+
 
 Today `WEBAPP_CONCURRENCY=1` (default) because parallel runs race the on-disk memory log in the upstream `tradingagents/` core (see comment in `webapp/jobs/runner.py:14-17`). Same-ticker parallelism is also blocked globally via `has_active_run_for_ticker` in `store.py:172-183`.
 
