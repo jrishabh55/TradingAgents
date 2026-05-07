@@ -549,7 +549,7 @@ def get_user_selections():
     console.print(
         create_question_box(
             "Step 1: Ticker Symbol",
-            "Enter the ticker, with exchange suffix when needed (e.g. SPY, 0700.HK, BTC-USD)",
+            "Enter the ticker, with exchange suffix when needed (e.g. SPY, RELIANCE.NS, 0700.HK, BTC-USD)",
             "SPY",
         )
     )
@@ -760,15 +760,62 @@ def get_analysis_date():
             )
 
 
-def save_report_to_disk(final_state, ticker: str, save_path: Path):
-    """Save the complete analysis report to disk (shared CLI/API writer)."""
-    return write_report_tree(final_state, ticker, save_path)
+# Color map for the 5-tier rating panel — bright_green (most bullish) → bright_red.
+_RATING_STYLES = {
+    "Buy":         ("bright_green", "STRONG BUY"),
+    "Overweight":  ("green",        "BUY"),
+    "Hold":        ("yellow",       "HOLD"),
+    "Underweight": ("red",          "REDUCE"),
+    "Sell":        ("bright_red",   "STRONG SELL"),
+}
 
 
-def display_complete_report(final_state):
+def render_rating_panel(ticker: str, rating: str, trade_date: str) -> Panel:
+    """Build the one-shot rating panel shown at the end of an analysis.
+
+    ``rating`` is the 5-tier label produced by ``SignalProcessor.process_signal``.
+    Falls back to a neutral style if the rating is not recognised.
+    """
+    color, label = _RATING_STYLES.get(rating, ("white", rating.upper()))
+    body = Text.assemble(
+        (f"{ticker}", "bold white"),
+        ("  •  ", "dim"),
+        (trade_date, "dim"),
+        ("\n\n", ""),
+        (label, f"bold {color}"),
+        ("\n\n", ""),
+        (f"Rating: {rating}", f"{color}"),
+    )
+    return Panel(
+        Align.center(body),
+        title="[bold]Final Recommendation[/bold]",
+        border_style=color,
+        padding=(1, 4),
+    )
+
+
+def save_report_to_disk(final_state, ticker: str, save_path: Path, rating: str | None = None):
+    """Save the complete analysis report to disk (shared CLI/API writer).
+
+    Fork addition: stamp the 5-tier ``rating`` into the consolidated report header.
+    """
+    report_file = write_report_tree(final_state, ticker, save_path)
+    if rating:
+        text = report_file.read_text(encoding="utf-8")
+        header, sep, body = text.partition("\n\n")  # split off the "# Trading Analysis Report" line
+        report_file.write_text(
+            f"{header}{sep}**Final Rating: {rating}**\n\n{body}", encoding="utf-8"
+        )
+    return report_file
+
+
+def display_complete_report(final_state, rating_panel: Panel | None = None):
     """Display the complete analysis report sequentially (avoids truncation)."""
     console.print()
     console.print(Rule("Complete Analysis Report", style="bold green"))
+    if rating_panel is not None:
+        console.print()
+        console.print(rating_panel)
 
     # I. Analyst Team Reports
     analysts = []
@@ -1257,6 +1304,13 @@ def run_analysis(checkpoint: bool | None = None):
     console.print("\n[bold cyan]Analysis Complete![/bold cyan]\n")
     console.print(f"[dim]{analyst_wall_time_tracker.format_summary()}[/dim]")
 
+    # One-shot rating panel — the high-signal summary the user is here for.
+    rating_panel = render_rating_panel(
+        selections["ticker"], decision, selections["analysis_date"]
+    )
+    console.print(rating_panel)
+    console.print()
+
     # Prompt to save report
     save_choice = typer.prompt("Save report?", default="Y").strip().upper()
     if save_choice in ("Y", "YES", ""):
@@ -1268,7 +1322,9 @@ def run_analysis(checkpoint: bool | None = None):
         ).strip()
         save_path = Path(save_path_str)
         try:
-            report_file = save_report_to_disk(final_state, selections["ticker"], save_path)
+            report_file = save_report_to_disk(
+                final_state, selections["ticker"], save_path, rating=decision
+            )
             console.print(f"\n[green]✓ Report saved to:[/green] {save_path.resolve()}")
             console.print(f"  [dim]Complete report:[/dim] {report_file.name}")
         except Exception as e:
@@ -1277,7 +1333,7 @@ def run_analysis(checkpoint: bool | None = None):
     # Prompt to display full report
     display_choice = typer.prompt("\nDisplay full report on screen?", default="Y").strip().upper()
     if display_choice in ("Y", "YES", ""):
-        display_complete_report(final_state)
+        display_complete_report(final_state, rating_panel=rating_panel)
 
 
 @app.command()
