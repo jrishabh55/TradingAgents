@@ -16,7 +16,7 @@ import os
 import sqlite3
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -36,12 +36,19 @@ CREATE TABLE IF NOT EXISTS runs (
     decision_text TEXT,
     rating        TEXT,
     final_state_json TEXT,
-    error         TEXT
+    error         TEXT,
+    request_hash  TEXT,
+    user_id       TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
 CREATE INDEX IF NOT EXISTS idx_runs_ticker_status ON runs(ticker, status);
 CREATE INDEX IF NOT EXISTS idx_runs_created_at ON runs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_runs_hash_completed
+    ON runs(request_hash, created_at DESC)
+    WHERE status = 'completed';
+CREATE INDEX IF NOT EXISTS idx_runs_user_created
+    ON runs(user_id, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS events (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -55,6 +62,15 @@ CREATE TABLE IF NOT EXISTS events (
 
 CREATE INDEX IF NOT EXISTS idx_events_run_seq ON events(run_id, seq);
 """
+
+
+# Columns added after the original schema shipped. Each entry is added to an
+# existing runs table via ALTER TABLE if it isn't already present. Order
+# matters: older databases may have any prefix of this list missing.
+_RUNS_TABLE_MIGRATIONS = [
+    ("request_hash", "TEXT"),
+    ("user_id", "TEXT"),
+]
 
 
 def _utcnow() -> str:
@@ -101,6 +117,23 @@ class JobStore:
     def _init_schema(self) -> None:
         with self._init_lock, self._conn() as conn:
             conn.executescript(_SCHEMA)
+            self._apply_runs_migrations(conn)
+
+    def _apply_runs_migrations(self, conn: sqlite3.Connection) -> None:
+        """Idempotently apply ALTER TABLE migrations for columns added later.
+
+        ``CREATE TABLE IF NOT EXISTS`` only runs on a fresh DB; existing
+        databases need explicit ALTER TABLE for new columns. SQLite's
+        ``ADD COLUMN`` is fast (metadata-only) and we silently skip columns
+        that already exist.
+        """
+        existing = {
+            row["name"] for row in conn.execute("PRAGMA table_info(runs)").fetchall()
+        }
+        for name, sql_type in _RUNS_TABLE_MIGRATIONS:
+            if name in existing:
+                continue
+            conn.execute(f"ALTER TABLE runs ADD COLUMN {name} {sql_type}")
 
     # ---------- runs ----------
 
@@ -110,16 +143,59 @@ class JobStore:
         ticker: str,
         analysis_date: str,
         config: Dict[str, Any],
+        request_hash: Optional[str] = None,
+        user_id: Optional[str] = None,
     ) -> str:
         """Insert a queued run and return its id."""
         run_id = str(uuid.uuid4())
         with self._conn() as conn:
             conn.execute(
-                "INSERT INTO runs(id, ticker, analysis_date, status, created_at, config_json) "
-                "VALUES (?, ?, ?, 'queued', ?, ?)",
-                (run_id, ticker, analysis_date, _utcnow(), json.dumps(config)),
+                "INSERT INTO runs(id, ticker, analysis_date, status, created_at, "
+                "config_json, request_hash, user_id) "
+                "VALUES (?, ?, ?, 'queued', ?, ?, ?, ?)",
+                (
+                    run_id,
+                    ticker,
+                    analysis_date,
+                    _utcnow(),
+                    json.dumps(config),
+                    request_hash,
+                    user_id,
+                ),
             )
         return run_id
+
+    def find_cached_run(
+        self,
+        request_hash: str,
+        *,
+        ttl_seconds: int,
+        user_id: Optional[str] = None,
+    ) -> Optional[RunDetail]:
+        """Return the most recent completed run matching ``request_hash`` within TTL.
+
+        ``user_id`` is optional: when provided, the lookup is scoped to that
+        user (per-user cache). When ``None``, the cache is shared across all
+        users — appropriate when the cached output (a public-data analysis) is
+        not user-specific.
+        """
+        cutoff = (
+            datetime.now(timezone.utc) - timedelta(seconds=ttl_seconds)
+        ).isoformat()
+        sql = (
+            "SELECT * FROM runs WHERE request_hash=? AND status='completed' "
+            "AND finished_at IS NOT NULL AND finished_at >= ?"
+        )
+        params: list = [request_hash, cutoff]
+        if user_id is not None:
+            sql += " AND user_id=?"
+            params.append(user_id)
+        sql += " ORDER BY finished_at DESC LIMIT 1"
+        with self._conn() as conn:
+            row = conn.execute(sql, params).fetchone()
+        if row is None:
+            return None
+        return _row_to_detail(row)
 
     def mark_running(self, run_id: str) -> None:
         with self._conn() as conn:

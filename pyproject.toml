@@ -56,6 +56,11 @@ cli = ["static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Project root on sys.path so tests can import apps.api.* without needing the
+# fork's web layer to be a setuptools-installed package. Upstream's
+# tradingagents/ + cli/ packages are still resolved the normal way (via
+# `pip install -e .`).
+pythonpath = ["."]
 addopts = "-ra --strict-markers"
 markers = [
     "unit: fast isolated unit tests",

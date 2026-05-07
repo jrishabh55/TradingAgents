@@ -44,7 +44,9 @@ apps/
 
 ---
 
-## 2. Run caching by request hash
+## 2. Run caching by request hash ✅ DONE
+
+
 
 Cache completed runs by a hash of the canonicalized `RunRequest`, so identical requests skip the pipeline and return the existing report.
 

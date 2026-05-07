@@ -121,6 +121,22 @@ losing functionality.
 
 **Migration plan:** Keep.
 
+### 7. `pyproject.toml`
+
+**Change:** Added `pythonpath = ["."]` under `[tool.pytest.ini_options]`.
+
+**Why:** Tests under `tests/` import from `apps.api.*` (the fork's web layer).
+The upstream packaging config only installs `tradingagents*` and `cli*`, so
+without this line pytest can't resolve `from apps.api.jobs.store import ...`.
+Putting the project root on the test sys.path is the least invasive fix
+and doesn't affect the installed package.
+
+**Conflict risk:** Low. Additive 1-line edit in a section upstream is unlikely
+to touch in a conflicting way.
+
+**Migration plan:** Keep. If upstream rearranges its pytest config, merge by
+hand.
+
 ---
 
 ## New top-level paths (no upstream collision possible)

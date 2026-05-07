@@ -1,4 +1,4 @@
-"""Pydantic schemas for the webapp REST + SSE API.
+"""Pydantic schemas for the apps/api REST + SSE API.
 
 The fields on ``RunRequest`` are a 1:1 mirror of the ``selections`` dict the CLI
 builds in ``cli/main.py:599-612`` — the only translation step is dropping the
@@ -7,6 +7,8 @@ CLI does at ``cli/main.py:973-985``.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
@@ -14,8 +16,52 @@ from pydantic import BaseModel, Field
 
 
 # Status vocabulary for jobs. Aligned with the SSE event taxonomy in
-# webapp/jobs/translator.py.
+# apps/api/jobs/translator.py.
 RunStatus = Literal["queued", "running", "completed", "failed", "cancelled"]
+
+
+# Fields that participate in the cache key. Anything that changes the
+# pipeline's *output* must be in here. ``checkpoint_enabled`` is intentionally
+# excluded — it's an internal LangGraph mechanism (resume on crash) and does
+# not affect report content.
+_CACHE_KEY_FIELDS = (
+    "ticker",
+    "analysis_date",
+    "analysts",
+    "research_depth",
+    "llm_provider",
+    "backend_url",
+    "shallow_thinker",
+    "deep_thinker",
+    "google_thinking_level",
+    "openai_reasoning_effort",
+    "anthropic_effort",
+    "output_language",
+)
+
+
+def canonicalize_request(request: "RunRequest") -> Dict[str, Any]:
+    """Return a deterministic dict suitable for hashing.
+
+    - Subsets to fields that affect output (drops ``checkpoint_enabled``)
+    - Sorts ``analysts`` so [news, market] and [market, news] hash identically
+    - Lowercases ``llm_provider`` so "OpenAI" and "openai" collide
+
+    Two requests with the same canonical form will produce the same cached
+    report (subject to the TTL — markets and news data shift over time).
+    """
+    raw = request.model_dump()
+    canonical: Dict[str, Any] = {k: raw[k] for k in _CACHE_KEY_FIELDS}
+    canonical["analysts"] = sorted(canonical["analysts"])
+    if isinstance(canonical.get("llm_provider"), str):
+        canonical["llm_provider"] = canonical["llm_provider"].lower()
+    return canonical
+
+
+def request_hash(request: "RunRequest") -> str:
+    """SHA-256 hex of the canonical request — the cache key."""
+    payload = json.dumps(canonicalize_request(request), sort_keys=True)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 class RunRequest(BaseModel):
@@ -52,6 +98,11 @@ class RunSummary(BaseModel):
     finished_at: Optional[datetime] = None
     rating: Optional[str] = None
     error: Optional[str] = None
+    # True when this row is being returned as a cache hit for an incoming
+    # POST /api/runs — i.e. the pipeline did not run again. The frontend
+    # uses this to surface a "Cached result" banner with a force-refresh
+    # action.
+    cached: bool = False
 
 
 class RunDetail(BaseModel):
@@ -78,6 +129,8 @@ class RunDetail(BaseModel):
     final_trade_decision: Optional[str] = None
     investment_debate_state: Optional[Dict[str, Any]] = None
     risk_debate_state: Optional[Dict[str, Any]] = None
+    # True when this run is being returned as a cache hit. See RunSummary.cached.
+    cached: bool = False
 
 
 class EventEnvelope(BaseModel):

@@ -1,7 +1,7 @@
 """REST endpoints for analysis runs.
 
 Routes:
-  POST /api/runs                       create + enqueue
+  POST /api/runs                       create + enqueue (or return cached)
   GET  /api/runs                       list
   GET  /api/runs/{run_id}              detail
   POST /api/runs/{run_id}/cancel       request cooperative cancel
@@ -10,23 +10,47 @@ Routes:
 from __future__ import annotations
 
 import io
+import os
 from datetime import datetime
 from typing import List
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Response, status
 from fastapi.responses import StreamingResponse
 
 from apps.api.jobs.markdown import render_markdown_report
 from apps.api.jobs.runner import get_runner
 from apps.api.jobs.store import get_store
-from apps.api.schemas import RunDetail, RunRequest, RunSummary
+from apps.api.schemas import RunDetail, RunRequest, RunSummary, request_hash
 
 
 router = APIRouter()
 
 
-@router.post("/runs", response_model=RunDetail, status_code=status.HTTP_201_CREATED)
-def create_run(request: RunRequest) -> RunDetail:
+def _cache_ttl_seconds() -> int:
+    """How fresh a completed run must be to satisfy a cache lookup.
+
+    Default 24h. Trading agents fetch news/sentiment data up to "now" (not
+    sliced to ``analysis_date``), so an old cached report misses headlines
+    that have arrived since. 24h is short enough to feel current; lower it
+    via ``WEBAPP_CACHE_TTL_SECONDS`` if your data shifts faster.
+    """
+    try:
+        return int(os.environ.get("WEBAPP_CACHE_TTL_SECONDS", str(24 * 3600)))
+    except ValueError:
+        return 24 * 3600
+
+
+@router.post("/runs", response_model=RunDetail)
+def create_run(request: RunRequest, response: Response, force: bool = False) -> RunDetail:
+    """Create + enqueue a run, or return a cached completed run.
+
+    When a completed run exists for the same canonicalized request within
+    ``WEBAPP_CACHE_TTL_SECONDS``, returns it with HTTP 200 and ``cached=true``
+    instead of starting a fresh pipeline. Pass ``?force=true`` to bypass.
+
+    On a cache miss, the pipeline is enqueued and the new run row is returned
+    with HTTP 201.
+    """
     # Validate analysis_date — cheap, would otherwise fail deep inside the graph.
     try:
         d = datetime.strptime(request.analysis_date, "%Y-%m-%d").date()
@@ -36,6 +60,17 @@ def create_run(request: RunRequest) -> RunDetail:
         raise HTTPException(status_code=400, detail="analysis_date cannot be in the future")
 
     store = get_store()
+    req_hash = request_hash(request)
+
+    # Cache lookup before submitting work. Shared cache (no user_id filter) —
+    # the report content is a public-data analysis, not user-specific.
+    if not force:
+        cached = store.find_cached_run(req_hash, ttl_seconds=_cache_ttl_seconds())
+        if cached is not None:
+            cached.cached = True
+            response.status_code = status.HTTP_200_OK
+            return cached
+
     if store.has_active_run_for_ticker(request.ticker):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -47,12 +82,14 @@ def create_run(request: RunRequest) -> RunDetail:
         ticker=request.ticker,
         analysis_date=request.analysis_date,
         config=request.model_dump(),
+        request_hash=req_hash,
     )
     get_runner().submit(run_id, request)
 
     detail = store.get_run(run_id)
     if detail is None:  # pragma: no cover
         raise HTTPException(status_code=500, detail="Run was created but immediately disappeared")
+    response.status_code = status.HTTP_201_CREATED
     return detail
 
 
