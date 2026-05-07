@@ -1,0 +1,16 @@
+node_modules
+dist
+.cache
+.wrangler
+.vite
+coverage
+.env
+.env.local
+.env.*.local
+.DS_Store
+npm-debug.log
+yarn-error.log
+pnpm-debug.log
+.git
+.gitignore
+README.md

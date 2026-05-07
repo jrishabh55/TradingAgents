@@ -1,0 +1,20 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "tradingagents-webapp2",
+  "compatibility_date": "2025-09-02",
+  "compatibility_flags": ["nodejs_compat"],
+  "main": "@tanstack/react-start/server-entry",
+  // WEBAPP1_API_BASE: the FastAPI backend (webapp1) the worker proxies /api/*
+  // to. Override per-environment with `wrangler secret put` for a private
+  // token, or via vars for a non-secret URL.
+  //
+  // The frontend reads VITE_API_BASE at build time; if you front the worker on
+  // a different host than the API, set both. The simplest deployment is:
+  //   - run `webapp/Dockerfile.webapp` somewhere reachable from Cloudflare
+  //   - point WEBAPP1_API_BASE at it
+  //   - leave VITE_API_BASE unset so the frontend uses the same origin (the
+  //     worker proxies /api/*)
+  "vars": {
+    "WEBAPP1_API_BASE": "http://127.0.0.1:8080"
+  }
+}

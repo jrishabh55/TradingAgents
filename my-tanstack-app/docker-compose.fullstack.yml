@@ -1,0 +1,104 @@
+# Full-stack compose for the fork's web layer:
+#
+#   ┌─────────────────────────────┐         ┌──────────────────────────────┐
+#   │  webapp2  (this directory)  │         │  backend  (../webapp/)       │
+#   │  TanStack Start + Cloudflare│  /api/* │  FastAPI + SSE + SQLite      │
+#   │  http://localhost:3000      │ ──────▶ │  http://localhost:8080       │
+#   │  port 3000                  │         │  port 8080                   │
+#   └─────────────────────────────┘         └──────────────────────────────┘
+#               │                                       │
+#               └───────── docker network ──────────────┘
+#                       (internal DNS: backend:8080)
+#
+# Run from the repo root:
+#   docker compose -f my-tanstack-app/docker-compose.fullstack.yml up --build
+#
+# Then open:
+#   - http://localhost:3000  — webapp2 (the new TanStack Start UI, this dir)
+#   - http://localhost:8080  — webapp1 (FastAPI's own SPA, served from
+#                                       webapp/static/index.html)
+#
+# Both frontends drive the same backend pipeline. The CLI keeps working
+# untouched; this compose adds nothing to ../docker-compose.yml.
+
+services:
+  backend:
+    build:
+      context: ..
+      dockerfile: webapp/Dockerfile.webapp
+    image: tradingagents-webapp:latest
+    env_file:
+      - ../.env
+    environment:
+      WEBAPP_DB_PATH: /home/appuser/.tradingagents/webapp.sqlite
+      WEBAPP_REPORTS_DIR: /home/appuser/.tradingagents/webapp_reports
+      WEBAPP_CONCURRENCY: "1"
+      WEBAPP_AUTH_TOKEN: ""
+      # Allow webapp2 to call from a different origin during local dev. In
+      # prod this is unnecessary because the worker proxies same-origin.
+      WEBAPP_CORS_ORIGINS: "*"
+    volumes:
+      - tradingagents_data:/home/appuser/.tradingagents
+    ports:
+      - "8080:8080"
+    networks:
+      - tradingagents_net
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health').read()",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+    restart: unless-stopped
+
+  webapp2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: tradingagents-webapp2:latest
+    environment:
+      # Internal DNS — both services share the `tradingagents_net` network and
+      # `backend` is reachable as the hostname `backend`. The entrypoint
+      # rewrites wrangler.jsonc with this URL before Vite starts.
+      WEBAPP1_API_BASE: http://backend:8080
+    ports:
+      - "3000:3000"
+    # Source mount: edits to ./src on the host trigger Vite HMR inside the
+    # container — no rebuild needed. node_modules stays inside the image
+    # because it contains Linux-only binaries (workerd, esbuild,
+    # lightningcss) that don't match macOS/Windows hosts. The other watched
+    # paths (vite.config.ts, wrangler.jsonc, package.json) are also mounted
+    # so config changes hot-reload too.
+    volumes:
+      - ./src:/app/src
+      - ./vite.config.ts:/app/vite.config.ts
+      - ./tsconfig.json:/app/tsconfig.json
+      - ./package.json:/app/package.json
+      # NOTE: wrangler.jsonc is intentionally NOT mounted. The entrypoint
+      # rewrites it with the in-network backend hostname; mounting from the
+      # host would persist that rewrite back to your repo and create spurious
+      # git diffs.
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - tradingagents_net
+    restart: unless-stopped
+
+networks:
+  tradingagents_net:
+    name: tradingagents_net
+
+volumes:
+  # Reuse the same named volume webapp1's compose creates — runs, memory log,
+  # and reports written by either compose are visible from the other and from
+  # the CLI compose at ../docker-compose.yml.
+  tradingagents_data:
+    name: tradingagents_data
+    external: false
