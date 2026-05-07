@@ -1,0 +1,6 @@
+# Pip-installable extras for the webapp.
+# Kept separate from pyproject.toml so the upstream packaging metadata stays
+# untouched (see FORK_PATCHES.md).
+fastapi>=0.118
+uvicorn[standard]>=0.46
+sse-starlette>=2.1

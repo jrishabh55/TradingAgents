@@ -1,0 +1,41 @@
+# TradingAgents webapp compose file.
+#
+# Run from repo root:
+#   docker compose -f webapp/docker-compose.webapp.yml up --build
+#
+# Then open http://localhost:8080 in a browser.
+#
+# Volumes the upstream tradingagents service (in ../docker-compose.yml) also
+# uses — sharing them means the CLI and the webapp see the same memory log,
+# cache, and decision history.
+
+services:
+  webapp:
+    build:
+      context: ..
+      dockerfile: webapp/Dockerfile.webapp
+    image: tradingagents-webapp:latest
+    env_file:
+      - ../.env
+    environment:
+      # SQLite job DB lives on the volume so it survives container restarts.
+      WEBAPP_DB_PATH: /home/appuser/.tradingagents/webapp.sqlite
+      # Per-run Markdown archive on the volume — every completed run writes a
+      # file here so users have a transparent on-disk history.
+      WEBAPP_REPORTS_DIR: /home/appuser/.tradingagents/webapp_reports
+      # Single worker by default — concurrent runs would race the on-disk
+      # memory log. Bump only if you've thought through the consequences.
+      WEBAPP_CONCURRENCY: "1"
+      # Optional bearer-token gate (leave empty for open local-only deploys).
+      WEBAPP_AUTH_TOKEN: ""
+      # CORS — comma-separated origins, "*" for any.
+      WEBAPP_CORS_ORIGINS: "*"
+    volumes:
+      - tradingagents_data:/home/appuser/.tradingagents
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+volumes:
+  tradingagents_data:
+    name: tradingagents_data

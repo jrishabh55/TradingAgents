@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TradingAgents</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+  <script src="/static/marked.min.js" defer></script>
+  <script src="/static/purify.min.js" defer></script>
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">TA</span>
+      <span class="brand-name">TradingAgents</span>
+    </div>
+    <nav class="tabs">
+      <button data-view="form" class="tab active">New Run</button>
+      <button data-view="history" class="tab">History</button>
+    </nav>
+  </header>
+
+  <main id="app" data-view="form">
+
+    <!-- ============ FORM VIEW ============ -->
+    <section class="view view-form">
+      <h1>Run a new analysis</h1>
+      <form id="run-form" class="card form-grid">
+        <label class="field">
+          <span>Ticker</span>
+          <input type="text" id="ticker" name="ticker" required placeholder="RELIANCE.NS, AAPL, 7203.T" />
+          <small>Use Yahoo Finance suffixes for non-US: <code>.NS</code> NSE, <code>.BO</code> BSE, <code>.TO</code> TSX, <code>.T</code> Tokyo, <code>.HK</code> Hong Kong, <code>.L</code> London.</small>
+        </label>
+
+        <label class="field">
+          <span>Analysis date</span>
+          <input type="date" id="analysis_date" name="analysis_date" required />
+        </label>
+
+        <fieldset class="field field-full">
+          <legend>Analyst team</legend>
+          <div id="analysts-group" class="checkbox-row"></div>
+        </fieldset>
+
+        <label class="field">
+          <span>Research depth</span>
+          <select id="research_depth" name="research_depth"></select>
+        </label>
+
+        <label class="field">
+          <span>Output language</span>
+          <select id="output_language" name="output_language"></select>
+        </label>
+
+        <label class="field">
+          <span>LLM provider</span>
+          <select id="llm_provider" name="llm_provider"></select>
+        </label>
+
+        <label class="field">
+          <span>Backend URL</span>
+          <input type="text" id="backend_url" name="backend_url" placeholder="provider default" />
+        </label>
+
+        <label class="field">
+          <span>Shallow thinker (quick)</span>
+          <select id="shallow_thinker" name="shallow_thinker"></select>
+        </label>
+
+        <label class="field">
+          <span>Deep thinker (slow, smarter)</span>
+          <select id="deep_thinker" name="deep_thinker"></select>
+        </label>
+
+        <label class="field" id="field-openai-effort" hidden>
+          <span>OpenAI reasoning effort</span>
+          <select id="openai_reasoning_effort" name="openai_reasoning_effort">
+            <option value="">(auto)</option>
+            <option value="low">low</option>
+            <option value="medium">medium</option>
+            <option value="high">high</option>
+          </select>
+        </label>
+
+        <label class="field" id="field-google-thinking" hidden>
+          <span>Google thinking level</span>
+          <select id="google_thinking_level" name="google_thinking_level">
+            <option value="">(auto)</option>
+            <option value="low">low</option>
+            <option value="medium">medium</option>
+            <option value="high">high</option>
+          </select>
+        </label>
+
+        <label class="field" id="field-anthropic-effort" hidden>
+          <span>Anthropic effort</span>
+          <select id="anthropic_effort" name="anthropic_effort">
+            <option value="">(auto)</option>
+            <option value="high">high (thinking on)</option>
+            <option value="minimal">minimal (thinking off)</option>
+          </select>
+        </label>
+
+        <label class="field field-checkbox">
+          <input type="checkbox" id="checkpoint_enabled" name="checkpoint_enabled" />
+          <span>Enable checkpoint resume (recover from crash)</span>
+        </label>
+
+        <div class="field field-full form-actions">
+          <button type="submit" id="submit-run" class="primary">Start analysis</button>
+          <span class="form-error" id="form-error"></span>
+        </div>
+      </form>
+    </section>
+
+    <!-- ============ RUNNING VIEW (terminal-style 3-panel) ============ -->
+    <section class="view view-running terminal">
+      <div class="terminal-titlebar">
+        <span id="running-title">Welcome to TradingAgents</span>
+        <button id="cancel-run" class="terminal-btn-cancel">Cancel</button>
+      </div>
+
+      <div class="terminal-grid">
+        <!-- Top-left: Progress -->
+        <div class="panel panel-progress">
+          <div class="panel-title"><span>Progress</span></div>
+          <div class="panel-body panel-body-table">
+            <table class="progress-table">
+              <thead>
+                <tr><th class="col-team">Team</th><th class="col-agent">Agent</th><th class="col-status">Status</th></tr>
+              </thead>
+              <tbody id="progress-body"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Top-right: Messages & Tools -->
+        <div class="panel panel-messages">
+          <div class="panel-title"><span>Messages &amp; Tools</span></div>
+          <div class="panel-body panel-body-scroll" id="messages-scroll">
+            <table class="messages-table">
+              <thead>
+                <tr><th class="col-time">Time</th><th class="col-type">Type</th><th class="col-content">Content</th></tr>
+              </thead>
+              <tbody id="messages-body"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Bottom: Current Report (tabs + download) -->
+        <div class="panel panel-report">
+          <div class="panel-title panel-title-report">
+            <span class="panel-title-text">Current Report</span>
+            <div class="report-tabs" id="report-tabs"></div>
+            <a class="panel-action" id="report-download" href="#" download>↓ Download .md</a>
+          </div>
+          <div class="panel-body markdown-body" id="report-body"></div>
+        </div>
+      </div>
+
+      <footer class="terminal-stats">
+        <span>Tool Calls: <strong id="stat-tool">0</strong></span>
+        <span class="sep">|</span>
+        <span>LLM Calls: <strong id="stat-llm">0</strong></span>
+        <span class="sep">|</span>
+        <span>Generated Reports: <strong id="stat-reports">0</strong></span>
+        <span class="sep">|</span>
+        <span class="muted" id="running-meta">—</span>
+      </footer>
+    </section>
+
+    <!-- ============ RESULT VIEW (same terminal layout, frozen) ============ -->
+    <section class="view view-result terminal">
+      <div class="terminal-titlebar">
+        <button id="result-back" class="terminal-btn-cancel">← Back</button>
+        <span id="result-title">Welcome to TradingAgents</span>
+        <span style="visibility:hidden;">spacer</span>
+      </div>
+
+      <div id="rating-banner" class="rating-banner"></div>
+
+      <div class="terminal-grid terminal-grid-result">
+        <div class="panel panel-progress">
+          <div class="panel-title"><span>Progress</span></div>
+          <div class="panel-body panel-body-table">
+            <table class="progress-table">
+              <thead>
+                <tr><th class="col-team">Team</th><th class="col-agent">Agent</th><th class="col-status">Status</th></tr>
+              </thead>
+              <tbody id="result-progress-body"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel panel-messages">
+          <div class="panel-title"><span>Run Summary</span></div>
+          <div class="panel-body panel-body-scroll">
+            <dl class="run-summary" id="result-summary"></dl>
+          </div>
+        </div>
+
+        <div class="panel panel-report">
+          <div class="panel-title panel-title-report">
+            <span class="panel-title-text">Report</span>
+            <div class="report-tabs" id="result-tabs"></div>
+            <a class="panel-action" id="result-download" href="#" download>↓ Download .md</a>
+          </div>
+          <div class="panel-body markdown-body" id="result-body"></div>
+        </div>
+      </div>
+
+      <footer class="terminal-stats">
+        <span class="muted" id="result-meta">—</span>
+      </footer>
+    </section>
+
+    <!-- ============ HISTORY VIEW ============ -->
+    <section class="view view-history">
+      <h1>Past runs</h1>
+      <table class="history-table">
+        <thead>
+          <tr>
+            <th>Ticker</th>
+            <th>Date</th>
+            <th>Started</th>
+            <th>Status</th>
+            <th>Rating</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="history-body"></tbody>
+      </table>
+    </section>
+
+  </main>
+</body>
+</html>

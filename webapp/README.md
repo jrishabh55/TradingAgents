@@ -1,0 +1,152 @@
+# TradingAgents Webapp
+
+A web UI + REST/SSE API on top of the TradingAgents pipeline. Single Docker container, FastAPI backend, vanilla-JS frontend.
+
+> **Fork-only feature.** This entire `webapp/` directory is downstream-only. It does not exist upstream and never causes upstream merge conflicts. See `../FORK_PATCHES.md` for the audit log of upstream-tracked files this fork modifies.
+
+---
+
+## Quick start (Docker)
+
+```sh
+# From the repo root
+cp .env.example .env          # then edit; add your LLM API keys
+docker compose -f webapp/docker-compose.webapp.yml up --build
+```
+
+Open <http://localhost:8080>.
+
+## Quick start (local dev)
+
+```sh
+# Install webapp deps (the rest of the project must already be installed)
+uv pip install -r webapp/requirements-webapp.txt
+
+# Run with auto-reload
+uvicorn webapp.app:app --reload --port 8080
+```
+
+Open <http://localhost:8080>.
+
+---
+
+## What it does
+
+- **Form**: pick ticker, date, analyst team, LLM provider/models, research depth.
+- **Live progress**: subscribes to a Server-Sent Events stream and ticks off each agent as it finishes — same shape as the CLI's Rich panel.
+- **Result**: rating banner (Strong Buy / Buy / Hold / Reduce / Strong Sell), collapsible per-agent reports, downloadable Markdown.
+- **History**: every run is persisted to SQLite and re-viewable.
+- **Resume**: closing the browser mid-run is safe; reopening replays the SSE stream from where you left off via `Last-Event-ID`.
+
+---
+
+## Configuration (env vars)
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `WEBAPP_DB_PATH` | `~/.tradingagents/webapp.sqlite` | SQLite file for runs + events. |
+| `WEBAPP_CONCURRENCY` | `1` | Worker pool size. Bump only if you understand the memory-log race. |
+| `WEBAPP_AUTH_TOKEN` | (unset) | If set, requires `Authorization: Bearer <token>` on all `/api/*` calls. |
+| `WEBAPP_CORS_ORIGINS` | `*` | Comma-separated CORS allowlist. |
+| `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, … | — | LLM provider credentials. Same keys the CLI uses. |
+| `TRADINGAGENTS_RESULTS_DIR`, `TRADINGAGENTS_CACHE_DIR`, `TRADINGAGENTS_MEMORY_LOG_PATH` | — | Override upstream paths (memory log, cache). |
+
+API keys must come from environment — there is no UI for entering them. Mount `.env` via `env_file` (see compose file) or pass them with `-e` to `docker run`.
+
+---
+
+## REST + SSE API
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/` | Serves the SPA. |
+| `GET` | `/api/config` | Provider/model/analyst options for the UI. |
+| `POST` | `/api/runs` | Create + enqueue a run. Body matches `RunRequest`. Returns `RunDetail`. |
+| `GET` | `/api/runs` | List runs (most recent first). |
+| `GET` | `/api/runs/{id}` | Full run detail incl. final state. |
+| `POST` | `/api/runs/{id}/cancel` | Cooperative cancel. Stops after current agent. |
+| `GET` | `/api/runs/{id}/report.md` | Download as Markdown. |
+| `GET` | `/api/runs/{id}/events` | **SSE** stream. Honours `Last-Event-ID`. |
+
+Schemas live in `webapp/schemas.py`.
+
+---
+
+## SSE event types
+
+Each event arrives as `event: <type>` plus a JSON `data` payload. Frontend handlers in `webapp/static/app.js`.
+
+| Type | When | Key data |
+|---|---|---|
+| `run.started` | Worker picks up the job. | `ticker`, `analysis_date`, `selected_analysts`, `config` (redacted) |
+| `analyst.started` | First chunk where this analyst has no report yet. | `analyst` |
+| `analyst.report` | Chunk includes a fresh `*_report` field. | `analyst`, `section`, `content` |
+| `analyst.completed` | Analyst's report has arrived. | `analyst` |
+| `team.started` | Research / Trading / Risk team begins. | `team` |
+| `debate.update` | Bull/Bear/Aggressive/etc. produced new text. | `team`, `role`, `delta`, `full` |
+| `team.completed` | Judge produced a verdict. | `team` |
+| `report.section` | A non-analyst section finalised. | `section`, `content` |
+| `tool.called` | Agent invoked a tool. | `name`, `args` |
+| `heartbeat` | 15s keepalive. | — |
+| `run.final` | Pipeline finished. Includes parsed rating. | `decision_text`, `rating` |
+| `run.failed` | Worker crashed. | `error`, `traceback` |
+| `run.cancelled` | Cancel honoured. | — |
+
+Replay: persisted in SQLite. The browser's automatic `Last-Event-ID` reconnect logic gives lossless resumption.
+
+---
+
+## Reverse proxies
+
+If you put nginx / Caddy / Cloudflare in front of this:
+
+- **SSE buffering must be off.** For nginx:
+  ```nginx
+  location /api/runs {
+      proxy_pass http://127.0.0.1:8080;
+      proxy_buffering off;
+      proxy_cache off;
+      proxy_http_version 1.1;
+      proxy_set_header Connection "";
+  }
+  ```
+- **Cloudflare** drops idle long-lived connections at 100s. The 15s heartbeat keeps the connection alive; nothing further to configure on your side.
+- **Nginx default proxy_read_timeout** is 60s, which kills long SSE streams. Bump to `proxy_read_timeout 86400;` for the runs endpoint.
+
+---
+
+## Operational notes
+
+- **Single-tenant by default.** `WEBAPP_CONCURRENCY=1` and an HTTP 409 on same-ticker collisions prevents two graphs from racing the memory log. If you raise it, you are responsible for serialising memory-log writes some other way.
+- **API keys are never logged.** The runner redacts any key containing `key`/`token`/`secret` before publishing the `run.started` event. Don't add new ones to the log paths.
+- **No mid-run interactivity.** The graph never stops to ask the user a question — every choice is collected upfront in the form and frozen into the run config.
+- **Cancel is cooperative**, not preemptive. LangGraph doesn't expose mid-step cancellation; the runner checks the cancel flag between chunks (between agents).
+
+---
+
+## Repo layout
+
+```
+webapp/
+├── app.py                          FastAPI factory, lifespan, static mount
+├── schemas.py                      Pydantic models
+├── api/
+│   ├── config.py                   GET /api/config
+│   ├── runs.py                     CRUD over runs + Markdown export
+│   └── stream.py                   SSE endpoint with replay + heartbeat
+├── jobs/
+│   ├── store.py                    SQLite DAO
+│   ├── bus.py                      In-process pub/sub
+│   ├── translator.py               graph chunk → SSE events
+│   └── runner.py                   ThreadPoolExecutor worker
+├── integrations/
+│   └── graph_factory.py            One-shot upstream wrapper
+├── static/
+│   ├── index.html                  SPA shell
+│   ├── app.js                      Vanilla JS, EventSource, single file
+│   └── styles.css
+├── Dockerfile.webapp
+├── docker-compose.webapp.yml
+├── requirements-webapp.txt
+└── README.md                       (this file)
+```

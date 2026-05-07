@@ -1,0 +1,634 @@
+/* TradingAgents webapp — single stylesheet, terminal-inspired layout. */
+
+:root {
+  --bg: #0d1117;
+  --bg-card: #151b23;
+  --bg-elev: #1d242c;
+  --border: #2d333b;
+  --fg: #e6edf3;
+  --fg-muted: #8b949e;
+  --fg-dim: #6e7681;
+
+  --accent: #2f81f7;
+  --accent-strong: #1e6feb;
+
+  /* Terminal panel borders — match the Rich CLI's color cycle */
+  --panel-progress: #2dd4bf;     /* teal */
+  --panel-messages: #c084fc;     /* purple */
+  --panel-report:   #4ade80;     /* green */
+  --panel-stats:    #6e7681;
+
+  /* Status colors */
+  --status-pending:    #8b949e;
+  --status-progress:   #2f81f7;
+  --status-completed:  #4ade80;
+  --status-failed:     #f85149;
+
+  /* Rating tier colors */
+  --buy:         #4ade80;
+  --strong-buy:  #22c55e;
+  --hold:        #facc15;
+  --reduce:      #f97316;
+  --strong-sell: #ef4444;
+
+  --mono: "SF Mono", Menlo, Monaco, Consolas, "Roboto Mono", monospace;
+  --shadow: 0 1px 0 rgba(255,255,255,0.04), 0 4px 12px rgba(0,0,0,0.35);
+  --radius: 8px;
+  --topbar-h: 48px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  overflow: hidden;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+code, pre {
+  font-family: var(--mono);
+  font-size: 0.92em;
+}
+
+/* ====== top bar ====== */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--topbar-h);
+  padding: 0 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-card);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+}
+.brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.tabs { display: flex; gap: 4px; }
+.tab {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--fg-muted);
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.tab:hover { color: var(--fg); background: var(--bg-elev); }
+.tab.active { color: var(--fg); background: var(--bg-elev); border-color: var(--border); }
+
+/* ====== main + view switching ====== */
+
+main#app {
+  height: calc(100vh - var(--topbar-h));
+  overflow: hidden;
+}
+
+/* Default: hide every view. Visibility is opt-in per data-view below. */
+.view { display: none; height: 100%; min-height: 0; }
+
+/* Visibility rules — these are the SINGLE place display gets set on .view-* */
+main#app[data-view="form"]    .view-form,
+main#app[data-view="running"] .view-running,
+main#app[data-view="result"]  .view-result,
+main#app[data-view="history"] .view-history {
+  display: flex;
+  flex-direction: column;
+}
+
+main#app[data-view="form"] .view-form,
+main#app[data-view="history"] .view-history {
+  padding: 24px;
+  max-width: 1200px;
+  width: 100%;
+  margin: 0 auto;
+  overflow-y: auto;
+}
+
+h1 { font-size: 22px; font-weight: 600; margin: 0 0 16px 0; }
+h2 { font-size: 14px; font-weight: 600; margin: 0 0 10px 0; color: var(--fg-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.muted { color: var(--fg-muted); }
+
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  box-shadow: var(--shadow);
+  margin-bottom: 20px;
+}
+
+/* ====== form ====== */
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px 20px;
+}
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field-full { grid-column: 1 / -1; }
+.field-checkbox {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  grid-column: 1 / -1;
+}
+.field > span,
+.field > legend {
+  font-weight: 600;
+  color: var(--fg);
+  font-size: 13px;
+  padding: 0;
+}
+.field small { color: var(--fg-muted); font-size: 12px; }
+.field code { background: var(--bg-elev); padding: 1px 5px; border-radius: 3px; }
+
+input[type="text"],
+input[type="date"],
+select {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  color: var(--fg);
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+}
+input[type="text"]:focus,
+input[type="date"]:focus,
+select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(47,129,247,0.25);
+}
+
+input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+}
+
+fieldset {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+  padding: 10px 14px;
+}
+.checkbox-row { display: flex; gap: 18px; flex-wrap: wrap; padding-top: 6px; }
+.checkbox-row label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+
+.form-actions { display: flex; align-items: center; gap: 14px; margin-top: 8px; }
+.form-error { color: var(--status-failed); font-size: 13px; }
+
+button.primary,
+.button,
+.terminal-btn {
+  background: var(--accent);
+  color: #fff;
+  border: 1px solid var(--accent-strong);
+  padding: 7px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  font-family: inherit;
+}
+button.primary:hover,
+.button:hover,
+.terminal-btn:hover { background: var(--accent-strong); text-decoration: none; }
+
+.terminal-btn-cancel {
+  background: transparent;
+  color: var(--status-failed);
+  border: 1px solid var(--status-failed);
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: var(--mono);
+  cursor: pointer;
+}
+.terminal-btn-cancel:hover { background: rgba(248,81,73,0.12); }
+
+/* =====================================================================
+   TERMINAL LAYOUT — running + result views
+   Mirror of the Rich CLI's bordered panels and grid.
+   ===================================================================== */
+
+/* Layout-only properties for terminal views. Note: NO `display` here —
+   visibility is owned by the data-view selectors above so this class can't
+   accidentally show a hidden view. */
+.view.terminal {
+  height: 100%;
+  flex-direction: column;
+  padding: 12px;
+  gap: 12px;
+  font-family: var(--mono);
+  min-height: 0;
+}
+
+.terminal-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid var(--panel-report);
+  border-radius: 4px;
+  padding: 6px 14px;
+  color: var(--panel-report);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+}
+.terminal-titlebar #running-title,
+.terminal-titlebar #result-title {
+  flex: 1;
+  text-align: center;
+}
+
+/* The 3-panel grid: top-left + top-right share a row, bottom spans both. */
+.terminal-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(420px, 0.95fr) minmax(0, 1.6fr);
+  grid-template-rows: minmax(0, 0.55fr) minmax(0, 1fr);
+  gap: 12px;
+  min-height: 0;
+}
+.panel-progress { grid-column: 1; grid-row: 1; }
+.panel-messages { grid-column: 2; grid-row: 1; }
+.panel-report   { grid-column: 1 / -1; grid-row: 2; }
+
+.panel {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0;
+  background: var(--bg);
+  overflow: hidden;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.panel-title {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 6px 12px;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border-bottom: 1px dashed currentColor;
+  white-space: nowrap;
+}
+.panel-title > span { color: inherit; }
+
+.panel-progress             { border-color: var(--panel-progress); }
+.panel-progress .panel-title { color: var(--panel-progress); border-bottom-color: rgba(45,212,191,0.35); }
+.panel-messages             { border-color: var(--panel-messages); }
+.panel-messages .panel-title { color: var(--panel-messages); border-bottom-color: rgba(192,132,252,0.35); }
+.panel-report               { border-color: var(--panel-report); }
+.panel-report .panel-title  { color: var(--panel-report); border-bottom-color: rgba(74,222,128,0.35); }
+
+.panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px 14px;
+}
+.panel-body-table { padding: 6px 10px; }
+.panel-body-scroll { padding: 0; }   /* tables manage their own padding */
+
+/* ---- Current Report header: title + tabs + download ---- */
+
+.panel-title-report {
+  justify-content: flex-start;
+  padding: 4px 10px 4px 14px;
+  gap: 14px;
+  text-transform: none;
+  letter-spacing: 0.04em;
+}
+.panel-title-text { white-space: nowrap; flex-shrink: 0; font-weight: 600; }
+
+.report-tabs {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  padding-bottom: 2px;  /* leave space for active tab underline */
+}
+.report-tabs::-webkit-scrollbar { height: 4px; }
+.report-tabs::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+.report-tab {
+  padding: 4px 10px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg-muted);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  text-transform: none;
+  letter-spacing: 0;
+  white-space: nowrap;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.report-tab:hover:not(.active) { background: var(--bg-elev); color: var(--fg); }
+.report-tab.active {
+  background: rgba(74,222,128,0.10);
+  border-color: var(--panel-report);
+  color: var(--panel-report);
+  font-weight: 600;
+}
+
+.panel-action {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  border: 1px solid var(--panel-report);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--panel-report);
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: 0;
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.panel-action:hover {
+  background: rgba(74,222,128,0.12);
+  text-decoration: none;
+}
+.panel-action[aria-disabled="true"],
+.panel-action.disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+/* Result-view summary (key/value pairs) */
+.run-summary {
+  margin: 0;
+  padding: 10px 14px;
+  font-family: var(--mono);
+  font-size: 12px;
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  gap: 4px 12px;
+}
+.run-summary dt { color: var(--fg-muted); }
+.run-summary dd { margin: 0; color: var(--fg); word-break: break-word; }
+
+/* ====== Progress table ====== */
+
+.progress-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+.progress-table thead th {
+  text-align: center;
+  padding: 4px 8px;
+  color: var(--panel-progress);
+  font-weight: 600;
+  border-bottom: 1px dashed rgba(45,212,191,0.25);
+}
+.progress-table .col-team   { width: 30%; text-align: right; padding-right: 18px; }
+.progress-table .col-agent  { width: 38%; text-align: center; }
+.progress-table .col-status { width: 32%; text-align: center; }
+
+.progress-table tbody tr.team-divider td {
+  border-top: 1px dashed rgba(45,212,191,0.18);
+  padding-top: 6px;
+}
+.progress-table tbody td {
+  padding: 2px 8px;
+  vertical-align: top;
+}
+.progress-table .team-cell {
+  color: var(--accent);
+  font-weight: 500;
+  vertical-align: middle;
+}
+.progress-table .agent-cell {
+  color: var(--status-completed);
+}
+.progress-table tr[data-status="pending"] .agent-cell  { color: var(--status-pending); }
+.progress-table tr[data-status="in_progress"] .agent-cell { color: var(--status-progress); }
+.progress-table tr[data-status="failed"] .agent-cell { color: var(--status-failed); }
+
+.progress-table .status-cell { font-weight: 500; }
+.progress-table tr[data-status="pending"]     .status-cell { color: var(--status-pending); }
+.progress-table tr[data-status="in_progress"] .status-cell { color: var(--status-progress); }
+.progress-table tr[data-status="completed"]   .status-cell { color: var(--status-completed); }
+.progress-table tr[data-status="failed"]      .status-cell { color: var(--status-failed); }
+
+/* ====== Messages & Tools table ====== */
+
+.messages-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+.messages-table thead {
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  z-index: 1;
+}
+.messages-table thead th {
+  text-align: left;
+  padding: 6px 10px;
+  color: var(--panel-messages);
+  font-weight: 600;
+  border-bottom: 1px dashed rgba(192,132,252,0.25);
+}
+.messages-table tbody tr { border-bottom: 1px dashed rgba(192,132,252,0.12); }
+.messages-table tbody td {
+  padding: 8px 10px;
+  vertical-align: top;
+}
+.messages-table .col-time   { width: 80px;  color: var(--panel-messages); white-space: nowrap; }
+.messages-table .col-type   { width: 120px; color: var(--panel-messages); white-space: nowrap; }
+.messages-table .col-content { color: var(--fg); word-break: break-word; }
+
+/* ====== Current Report (scrollable) ====== */
+
+#report-body, #result-body {
+  padding: 14px 20px;
+}
+
+/* GitHub-flavored Markdown styling */
+.markdown-body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--fg);
+}
+.markdown-body :first-child { margin-top: 0; }
+.markdown-body :last-child  { margin-bottom: 0; }
+.markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4 {
+  margin: 18px 0 8px 0;
+  font-weight: 600;
+  color: var(--fg);
+  letter-spacing: normal;
+  text-transform: none;
+}
+.markdown-body h1 { font-size: 20px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+.markdown-body h2 { font-size: 17px; border-bottom: 1px solid var(--border); padding-bottom: 4px; color: var(--fg); }
+.markdown-body h3 { font-size: 15px; }
+.markdown-body p  { margin: 8px 0; }
+.markdown-body ul, .markdown-body ol { padding-left: 22px; margin: 8px 0; }
+.markdown-body li { margin: 4px 0; }
+.markdown-body pre {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  overflow-x: auto;
+}
+.markdown-body code:not(pre > code) {
+  background: var(--bg-elev);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+.markdown-body table {
+  border-collapse: collapse;
+  margin: 10px 0;
+  font-size: 13px;
+}
+.markdown-body th, .markdown-body td {
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+}
+.markdown-body th { background: var(--bg-elev); }
+.markdown-body blockquote {
+  border-left: 3px solid var(--border);
+  padding-left: 10px;
+  color: var(--fg-muted);
+  margin: 8px 0;
+}
+.markdown-body strong { color: var(--fg); font-weight: 600; }
+.markdown-body hr { border: none; border-top: 1px dashed var(--border); margin: 14px 0; }
+
+/* ====== Footer stats strip ====== */
+
+.terminal-stats {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  border: 1px solid var(--panel-stats);
+  border-radius: 4px;
+  padding: 6px 14px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--fg);
+}
+.terminal-stats .sep { color: var(--fg-dim); }
+.terminal-stats strong { color: var(--accent); font-weight: 600; }
+
+/* ====== Rating banner (result view) ====== */
+
+.rating-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 22px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+.rating-banner .label {
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  margin: 0;
+  font-family: var(--mono);
+}
+.rating-banner .meta {
+  text-align: right;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+.rating-banner.tier-buy            { border-color: var(--strong-buy); }
+.rating-banner.tier-buy .label     { color: var(--strong-buy); }
+.rating-banner.tier-overweight        { border-color: var(--buy); }
+.rating-banner.tier-overweight .label { color: var(--buy); }
+.rating-banner.tier-hold        { border-color: var(--hold); }
+.rating-banner.tier-hold .label { color: var(--hold); }
+.rating-banner.tier-underweight        { border-color: var(--reduce); }
+.rating-banner.tier-underweight .label { color: var(--reduce); }
+.rating-banner.tier-sell        { border-color: var(--strong-sell); }
+.rating-banner.tier-sell .label { color: var(--strong-sell); }
+
+/* ====== History view ====== */
+
+.history-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.history-table th,
+.history-table td {
+  padding: 10px 14px;
+  text-align: left;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border);
+}
+.history-table th { color: var(--fg-muted); font-weight: 600; background: var(--bg-elev); }
+.history-table tr:last-child td { border-bottom: none; }
+.history-table tr:hover { background: var(--bg-elev); }
+.history-table .row-rating { font-weight: 600; }
+
+/* ====== Responsive ====== */
+
+@media (max-width: 900px) {
+  .terminal-grid {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(180px, 0.4fr) minmax(180px, 0.4fr) minmax(0, 1fr);
+  }
+  .panel-progress { grid-column: 1; grid-row: 1; }
+  .panel-messages { grid-column: 1; grid-row: 2; }
+  .panel-report   { grid-column: 1; grid-row: 3; }
+}
