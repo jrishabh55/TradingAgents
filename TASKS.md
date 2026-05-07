@@ -6,7 +6,9 @@ Order is rough priority; each item is independently shippable.
 
 ---
 
-## 1. Restructure: `apps/` monorepo layout
+## 1. Restructure: `apps/` monorepo layout ✅ DONE
+
+
 
 Move the web layer into a clearer monorepo shape so frontend and backend live side by side.
 

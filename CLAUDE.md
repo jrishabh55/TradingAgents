@@ -6,10 +6,10 @@ This repository is a downstream fork of the open-source TradingAgents project. T
 
 When the user asks for changes, default scope is **the web/product layer only**:
 
-- `webapp/` — Python web backend
-- `my-tanstack-app/` — TanStack frontend
-- Any new top-level directory we add for the proxy/API layer (e.g. a future Bun/Elysia gateway)
-- `reports/`, `deploy/`, `tests/` for product-layer code, and `FORK_PATCHES.md`
+- `apps/api/` — Python FastAPI backend (was `webapp/`)
+- `apps/web/` — TanStack frontend (was `my-tanstack-app/`)
+- Any new app placed under `apps/` (e.g. a future Bun/Elysia gateway → `apps/gateway/`)
+- `deploy/`, `tests/` for product-layer code, and `FORK_PATCHES.md`
 
 The **core CLI and agent framework is off-limits** unless the user explicitly asks for a change to it. Treat these paths as read-only by default:
 
@@ -30,6 +30,6 @@ If a web-layer change *seems* to require touching the core, stop and ask first �
 
 ## Conversation defaults
 
-- "Backend" in this project, unless qualified, means the **web/proxy backend** (`webapp/` or a new gateway), not the Python agent framework.
-- "Frontend" means `my-tanstack-app/`.
+- "Backend" in this project, unless qualified, means the **web/proxy backend** (`apps/api/`), not the Python agent framework.
+- "Frontend" means `apps/web/`.
 - "The CLI" or "the agent core" means the `cli/` + `tradingagents/` Python code — only touch it on explicit request.

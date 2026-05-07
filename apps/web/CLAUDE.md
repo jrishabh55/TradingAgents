@@ -6,7 +6,7 @@ The single source of truth for this project's agent context is
 It contains:
 - Stack, design system primer, env vars, deployment notes
 - The exact CLI command used to scaffold
-- The SSE event taxonomy this app consumes from `../webapp/`
+- The SSE event taxonomy this app consumes from `../api/`
 - Known gotchas + next steps
 - TanStack Intent skill registry (auto-maintained by
   `npx @tanstack/intent@latest install`)

@@ -1,4 +1,4 @@
-"""FastAPI application factory for the TradingAgents webapp.
+"""FastAPI application factory for the TradingAgents API.
 
 Mount layout:
     /                          → static index.html
@@ -7,9 +7,10 @@ Mount layout:
     /api/runs                  → REST CRUD-ish over runs
     /api/runs/{id}/events      → SSE stream
 
-Auth: optional bearer-token gate via ``WEBAPP_AUTH_TOKEN`` env var. If unset, the
-app is fully open (intended for personal/internal use behind a VPN). For
-public deployments, set the env var and pass ``Authorization: Bearer <token>``.
+Auth: Clerk JWT verification when ``CLERK_JWKS_URL`` is set. Falls back to the
+legacy shared-bearer token via ``WEBAPP_AUTH_TOKEN`` when only that is set.
+With neither set, the app is fully open (intended for personal/internal use
+behind a VPN).
 """
 from __future__ import annotations
 
@@ -26,12 +27,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from webapp.api.config import router as config_router
-from webapp.api.runs import router as runs_router
-from webapp.api.stream import router as stream_router
-from webapp.jobs.bus import get_bus
-from webapp.jobs.runner import get_runner, shutdown_runner
-from webapp.jobs.store import get_store
+from apps.api.routes.config import router as config_router
+from apps.api.routes.runs import router as runs_router
+from apps.api.routes.stream import router as stream_router
+from apps.api.jobs.bus import get_bus
+from apps.api.jobs.runner import get_runner, shutdown_runner
+from apps.api.jobs.store import get_store
 
 
 logger = logging.getLogger(__name__)
@@ -134,5 +135,5 @@ def _split_csv(raw: str) -> list[str]:
     return [item.strip() for item in raw.split(",") if item.strip()]
 
 
-# uvicorn entrypoint (`uvicorn webapp.app:app`).
+# uvicorn entrypoint (`uvicorn apps.api.app:app`).
 app = create_app()

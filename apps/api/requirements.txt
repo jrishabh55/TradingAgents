@@ -1,4 +1,4 @@
-# Pip-installable extras for the webapp.
+# Pip-installable extras for the API.
 # Kept separate from pyproject.toml so the upstream packaging metadata stays
 # untouched (see FORK_PATCHES.md).
 fastapi>=0.118

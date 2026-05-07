@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Tuple
 from cli.stats_handler import StatsCallbackHandler
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.graph.trading_graph import TradingAgentsGraph
-from webapp.schemas import RunRequest
+from apps.api.schemas import RunRequest
 
 
 def build_graph_for_request(

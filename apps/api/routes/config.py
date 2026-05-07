@@ -12,7 +12,7 @@ from typing import List
 from fastapi import APIRouter
 
 from tradingagents.llm_clients.model_catalog import MODEL_OPTIONS
-from webapp.schemas import ConfigResponse, ModelOption, ProviderOption
+from apps.api.schemas import ConfigResponse, ModelOption, ProviderOption
 
 
 router = APIRouter()

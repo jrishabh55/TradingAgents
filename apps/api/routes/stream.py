@@ -20,9 +20,9 @@ from typing import AsyncIterator, Optional
 from fastapi import APIRouter, HTTPException, Request
 from sse_starlette.sse import EventSourceResponse
 
-from webapp.jobs.bus import get_bus
-from webapp.jobs.store import get_store
-from webapp.schemas import EventEnvelope
+from apps.api.jobs.bus import get_bus
+from apps.api.jobs.store import get_store
+from apps.api.schemas import EventEnvelope
 
 
 router = APIRouter()

@@ -1,22 +1,22 @@
-# TradingAgents webapp compose file.
+# TradingAgents API compose file.
 #
 # Run from repo root:
-#   docker compose -f webapp/docker-compose.webapp.yml up --build
+#   docker compose -f apps/api/docker-compose.yml up --build
 #
 # Then open http://localhost:8080 in a browser.
 #
-# Volumes the upstream tradingagents service (in ../docker-compose.yml) also
-# uses — sharing them means the CLI and the webapp see the same memory log,
+# Volumes the upstream tradingagents service (in ../../docker-compose.yml) also
+# uses — sharing them means the CLI and the API see the same memory log,
 # cache, and decision history.
 
 services:
-  webapp:
+  api:
     build:
-      context: ..
-      dockerfile: webapp/Dockerfile.webapp
-    image: tradingagents-webapp:latest
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+    image: tradingagents-api:latest
     env_file:
-      - ../.env
+      - ../../.env
     environment:
       # SQLite job DB lives on the volume so it survives container restarts.
       WEBAPP_DB_PATH: /home/appuser/.tradingagents/webapp.sqlite
@@ -27,6 +27,7 @@ services:
       # memory log. Bump only if you've thought through the consequences.
       WEBAPP_CONCURRENCY: "1"
       # Optional bearer-token gate (leave empty for open local-only deploys).
+      # NOTE: Clerk JWT auth supersedes this when CLERK_JWKS_URL is set.
       WEBAPP_AUTH_TOKEN: ""
       # CORS — comma-separated origins, "*" for any.
       WEBAPP_CORS_ORIGINS: "*"

@@ -1,10 +1,10 @@
-# TradingAgents webapp image.
+# TradingAgents API image.
 #
 # Build context: repository root. Build with:
-#   docker build -f webapp/Dockerfile.webapp -t tradingagents-webapp .
+#   docker build -f apps/api/Dockerfile -t tradingagents-api .
 #
 # Run with:
-#   docker compose -f webapp/docker-compose.webapp.yml up
+#   docker compose -f apps/api/docker-compose.yml up
 #
 # This file is fork-only and never present upstream — see FORK_PATCHES.md.
 
@@ -18,9 +18,9 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 WORKDIR /build
 COPY . .
-# Install the upstream package + the webapp extras.
+# Install the upstream package + the API extras.
 RUN pip install --no-cache-dir . \
- && pip install --no-cache-dir -r webapp/requirements-webapp.txt
+ && pip install --no-cache-dir -r apps/api/requirements.txt
 
 FROM python:3.12-slim
 
@@ -35,7 +35,7 @@ RUN useradd --create-home appuser \
  && chown -R appuser:appuser /home/appuser/.tradingagents
 # Pre-creating /home/appuser/.tradingagents with appuser ownership matters
 # because docker-compose mounts a named volume here. If the path doesn't exist
-# in the image, Docker creates the mount point as root:root and the webapp
+# in the image, Docker creates the mount point as root:root and the API
 # can't write its SQLite job DB. With the path pre-created and owned by
 # appuser, the named volume inherits that ownership on first mount.
 
@@ -47,4 +47,4 @@ COPY --from=builder --chown=appuser:appuser /build .
 EXPOSE 8080
 
 # uvicorn instead of `tradingagents` (the upstream CLI entrypoint).
-ENTRYPOINT ["uvicorn", "webapp.app:app", "--host", "0.0.0.0", "--port", "8080"]
+ENTRYPOINT ["uvicorn", "apps.api.app:app", "--host", "0.0.0.0", "--port", "8080"]

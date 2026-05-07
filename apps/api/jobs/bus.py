@@ -21,7 +21,7 @@ import logging
 from collections import defaultdict
 from typing import AsyncIterator, Dict, List, Optional, Set
 
-from webapp.schemas import EventEnvelope
+from apps.api.schemas import EventEnvelope
 
 
 logger = logging.getLogger(__name__)

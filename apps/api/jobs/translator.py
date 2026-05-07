@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Iterator, List, Optional, Set
 
-from webapp.schemas import EventEnvelope
+from apps.api.schemas import EventEnvelope
 
 
 logger = logging.getLogger(__name__)

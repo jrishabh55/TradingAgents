@@ -1,7 +1,7 @@
 # Full-stack compose for the fork's web layer:
 #
 #   ┌─────────────────────────────┐         ┌──────────────────────────────┐
-#   │  webapp2  (this directory)  │         │  backend  (../webapp/)       │
+#   │  apps/web (this directory)  │         │  backend  (../api/)          │
 #   │  TanStack Start + Cloudflare│  /api/* │  FastAPI + SSE + SQLite      │
 #   │  http://localhost:3000      │ ──────▶ │  http://localhost:8080       │
 #   │  port 3000                  │         │  port 8080                   │
@@ -11,30 +11,30 @@
 #                       (internal DNS: backend:8080)
 #
 # Run from the repo root:
-#   docker compose -f my-tanstack-app/docker-compose.fullstack.yml up --build
+#   docker compose -f apps/web/docker-compose.fullstack.yml up --build
 #
 # Then open:
-#   - http://localhost:3000  — webapp2 (the new TanStack Start UI, this dir)
-#   - http://localhost:8080  — webapp1 (FastAPI's own SPA, served from
-#                                       webapp/static/index.html)
+#   - http://localhost:3000  — TanStack Start UI (this dir)
+#   - http://localhost:8080  — FastAPI's legacy SPA (served from
+#                                       apps/api/static/index.html)
 #
 # Both frontends drive the same backend pipeline. The CLI keeps working
-# untouched; this compose adds nothing to ../docker-compose.yml.
+# untouched; this compose adds nothing to ../../docker-compose.yml.
 
 services:
   backend:
     build:
-      context: ..
-      dockerfile: webapp/Dockerfile.webapp
-    image: tradingagents-webapp:latest
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+    image: tradingagents-api:latest
     env_file:
-      - ../.env
+      - ../../.env
     environment:
       WEBAPP_DB_PATH: /home/appuser/.tradingagents/webapp.sqlite
       WEBAPP_REPORTS_DIR: /home/appuser/.tradingagents/webapp_reports
       WEBAPP_CONCURRENCY: "1"
       WEBAPP_AUTH_TOKEN: ""
-      # Allow webapp2 to call from a different origin during local dev. In
+      # Allow the web app to call from a different origin during local dev. In
       # prod this is unnecessary because the worker proxies same-origin.
       WEBAPP_CORS_ORIGINS: "*"
     volumes:
@@ -57,11 +57,11 @@ services:
       start_period: 5s
     restart: unless-stopped
 
-  webapp2:
+  web:
     build:
       context: .
       dockerfile: Dockerfile
-    image: tradingagents-webapp2:latest
+    image: tradingagents-web:latest
     environment:
       # Internal DNS — both services share the `tradingagents_net` network and
       # `backend` is reachable as the hostname `backend`. The entrypoint
@@ -96,9 +96,9 @@ networks:
     name: tradingagents_net
 
 volumes:
-  # Reuse the same named volume webapp1's compose creates — runs, memory log,
+  # Reuse the same named volume apps/api's compose creates — runs, memory log,
   # and reports written by either compose are visible from the other and from
-  # the CLI compose at ../docker-compose.yml.
+  # the CLI compose at ../../docker-compose.yml.
   tradingagents_data:
     name: tradingagents_data
     external: false

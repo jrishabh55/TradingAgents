@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-from webapp.schemas import EventEnvelope, RunDetail, RunStatus, RunSummary
+from apps.api.schemas import EventEnvelope, RunDetail, RunStatus, RunSummary
 
 
 _SCHEMA = """

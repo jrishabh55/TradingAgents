@@ -1,8 +1,8 @@
-# TradingAgents Webapp
+# TradingAgents API
 
-A web UI + REST/SSE API on top of the TradingAgents pipeline. Single Docker container, FastAPI backend, vanilla-JS frontend.
+A web UI + REST/SSE API on top of the TradingAgents pipeline. Single Docker container, FastAPI backend.
 
-> **Fork-only feature.** This entire `webapp/` directory is downstream-only. It does not exist upstream and never causes upstream merge conflicts. See `../FORK_PATCHES.md` for the audit log of upstream-tracked files this fork modifies.
+> **Fork-only feature.** This entire `apps/api/` directory is downstream-only. It does not exist upstream and never causes upstream merge conflicts. See `../../FORK_PATCHES.md` for the audit log of upstream-tracked files this fork modifies.
 
 ---
 
@@ -11,7 +11,7 @@ A web UI + REST/SSE API on top of the TradingAgents pipeline. Single Docker cont
 ```sh
 # From the repo root
 cp .env.example .env          # then edit; add your LLM API keys
-docker compose -f webapp/docker-compose.webapp.yml up --build
+docker compose -f apps/api/docker-compose.yml up --build
 ```
 
 Open <http://localhost:8080>.
@@ -19,11 +19,11 @@ Open <http://localhost:8080>.
 ## Quick start (local dev)
 
 ```sh
-# Install webapp deps (the rest of the project must already be installed)
-uv pip install -r webapp/requirements-webapp.txt
+# Install API deps (the rest of the project must already be installed)
+uv pip install -r apps/api/requirements.txt
 
 # Run with auto-reload
-uvicorn webapp.app:app --reload --port 8080
+uvicorn apps.api.app:app --reload --port 8080
 ```
 
 Open <http://localhost:8080>.
@@ -46,7 +46,9 @@ Open <http://localhost:8080>.
 |---|---|---|
 | `WEBAPP_DB_PATH` | `~/.tradingagents/webapp.sqlite` | SQLite file for runs + events. |
 | `WEBAPP_CONCURRENCY` | `1` | Worker pool size. Bump only if you understand the memory-log race. |
-| `WEBAPP_AUTH_TOKEN` | (unset) | If set, requires `Authorization: Bearer <token>` on all `/api/*` calls. |
+| `WEBAPP_AUTH_TOKEN` | (unset) | Legacy: shared bearer token. Superseded by Clerk JWT when `CLERK_JWKS_URL` is set. |
+| `CLERK_JWKS_URL` | (unset) | Clerk JWKS endpoint, e.g. `https://<your-app>.clerk.accounts.dev/.well-known/jwks.json`. When set, every `/api/*` request must carry a valid Clerk JWT. |
+| `CLERK_ISSUER` | (unset) | Expected `iss` claim value, e.g. `https://<your-app>.clerk.accounts.dev`. |
 | `WEBAPP_CORS_ORIGINS` | `*` | Comma-separated CORS allowlist. |
 | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, … | — | LLM provider credentials. Same keys the CLI uses. |
 | `TRADINGAGENTS_RESULTS_DIR`, `TRADINGAGENTS_CACHE_DIR`, `TRADINGAGENTS_MEMORY_LOG_PATH` | — | Override upstream paths (memory log, cache). |
@@ -61,20 +63,20 @@ API keys must come from environment — there is no UI for entering them. Mount 
 |---|---|---|
 | `GET` | `/` | Serves the SPA. |
 | `GET` | `/api/config` | Provider/model/analyst options for the UI. |
-| `POST` | `/api/runs` | Create + enqueue a run. Body matches `RunRequest`. Returns `RunDetail`. |
+| `POST` | `/api/runs` | Create + enqueue a run. Body matches `RunRequest`. Returns `RunDetail`. May return an existing run when caching is hit (HTTP 200 + `cached: true`). Pass `?force=true` to bypass the cache. |
 | `GET` | `/api/runs` | List runs (most recent first). |
 | `GET` | `/api/runs/{id}` | Full run detail incl. final state. |
 | `POST` | `/api/runs/{id}/cancel` | Cooperative cancel. Stops after current agent. |
 | `GET` | `/api/runs/{id}/report.md` | Download as Markdown. |
 | `GET` | `/api/runs/{id}/events` | **SSE** stream. Honours `Last-Event-ID`. |
 
-Schemas live in `webapp/schemas.py`.
+Schemas live in `apps/api/schemas.py`.
 
 ---
 
 ## SSE event types
 
-Each event arrives as `event: <type>` plus a JSON `data` payload. Frontend handlers in `webapp/static/app.js`.
+Each event arrives as `event: <type>` plus a JSON `data` payload. Frontend handlers live in `apps/web/src/lib/sse.ts` (and `apps/api/static/app.js` for the legacy vanilla-JS UI).
 
 | Type | When | Key data |
 |---|---|---|
@@ -127,10 +129,10 @@ If you put nginx / Caddy / Cloudflare in front of this:
 ## Repo layout
 
 ```
-webapp/
+apps/api/
 ├── app.py                          FastAPI factory, lifespan, static mount
 ├── schemas.py                      Pydantic models
-├── api/
+├── routes/
 │   ├── config.py                   GET /api/config
 │   ├── runs.py                     CRUD over runs + Markdown export
 │   └── stream.py                   SSE endpoint with replay + heartbeat
@@ -142,11 +144,11 @@ webapp/
 ├── integrations/
 │   └── graph_factory.py            One-shot upstream wrapper
 ├── static/
-│   ├── index.html                  SPA shell
+│   ├── index.html                  Legacy SPA shell (apps/web/ is the active UI)
 │   ├── app.js                      Vanilla JS, EventSource, single file
 │   └── styles.css
-├── Dockerfile.webapp
-├── docker-compose.webapp.yml
-├── requirements-webapp.txt
+├── Dockerfile
+├── docker-compose.yml
+├── requirements.txt
 └── README.md                       (this file)
 ```

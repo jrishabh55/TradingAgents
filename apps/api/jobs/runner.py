@@ -26,11 +26,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from webapp.jobs.bus import EventBus, get_bus
-from webapp.jobs.markdown import render_markdown_report
-from webapp.jobs.store import JobStore, get_store
-from webapp.jobs.translator import ChunkTranslator
-from webapp.schemas import RunRequest
+from apps.api.jobs.bus import EventBus, get_bus
+from apps.api.jobs.markdown import render_markdown_report
+from apps.api.jobs.store import JobStore, get_store
+from apps.api.jobs.translator import ChunkTranslator
+from apps.api.schemas import RunRequest
 
 
 logger = logging.getLogger(__name__)
@@ -100,7 +100,7 @@ class JobRunner:
     def _run(self, run_id: str, request: RunRequest, token: _CancelToken) -> None:
         # Local imports keep the module importable in tests without the upstream
         # graph package fully resolved.
-        from webapp.integrations.graph_factory import build_graph_for_request
+        from apps.api.integrations.graph_factory import build_graph_for_request
         from tradingagents.agents.utils.rating import parse_rating
 
         translator = ChunkTranslator(run_id, selected_analysts=request.analysts)
@@ -236,7 +236,7 @@ class JobRunner:
         # The bus will be a no-op if nobody's listening.
         from datetime import datetime, timezone
 
-        from webapp.schemas import EventEnvelope
+        from apps.api.schemas import EventEnvelope
 
         seq = self.store.latest_seq(run_id) + 1
         env = EventEnvelope(

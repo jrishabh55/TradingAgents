@@ -16,10 +16,10 @@ from typing import List
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
 
-from webapp.jobs.markdown import render_markdown_report
-from webapp.jobs.runner import get_runner
-from webapp.jobs.store import get_store
-from webapp.schemas import RunDetail, RunRequest, RunSummary
+from apps.api.jobs.markdown import render_markdown_report
+from apps.api.jobs.runner import get_runner
+from apps.api.jobs.store import get_store
+from apps.api.schemas import RunDetail, RunRequest, RunSummary
 
 
 router = APIRouter()
