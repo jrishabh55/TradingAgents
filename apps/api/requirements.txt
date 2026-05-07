@@ -4,3 +4,5 @@
 fastapi>=0.118
 uvicorn[standard]>=0.46
 sse-starlette>=2.1
+# Clerk JWT verification. PyJWT[crypto] pulls in `cryptography` for RS256.
+pyjwt[crypto]>=2.8

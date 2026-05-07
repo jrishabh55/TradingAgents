@@ -17,9 +17,10 @@ import json
 import logging
 from typing import AsyncIterator, Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sse_starlette.sse import EventSourceResponse
 
+from apps.api.auth import current_user_id
 from apps.api.jobs.bus import get_bus
 from apps.api.jobs.store import get_store
 from apps.api.schemas import EventEnvelope
@@ -34,10 +35,19 @@ TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
 
 
 @router.get("/runs/{run_id}/events")
-async def stream_events(run_id: str, request: Request) -> EventSourceResponse:
+async def stream_events(
+    run_id: str,
+    request: Request,
+    user_id: str = Depends(current_user_id),
+) -> EventSourceResponse:
     store = get_store()
     detail = store.get_run(run_id)
     if detail is None:
+        raise HTTPException(status_code=404, detail="run not found")
+    # Ownership check matches routes/runs.py:get_run. 404 (not 403) so the
+    # response doesn't confirm a run by this id exists for someone else.
+    owner = detail.user_id or "anonymous"
+    if owner != user_id:
         raise HTTPException(status_code=404, detail="run not found")
 
     last_event_id = _parse_last_event_id(request.headers.get("last-event-id"))

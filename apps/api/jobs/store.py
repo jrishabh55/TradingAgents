@@ -245,17 +245,24 @@ class JobStore:
                 (_utcnow(), run_id),
             )
 
-    def has_active_run_for_ticker(self, ticker: str) -> bool:
+    def has_active_run_for_ticker(
+        self, ticker: str, *, user_id: Optional[str] = None
+    ) -> bool:
         """True if any run for ``ticker`` is queued or running.
 
-        Used by the API to return HTTP 409 instead of letting two runs race the
-        on-disk memory log (see the gotcha in the architecture plan).
+        With ``user_id``, the check is per-user — User A starting a TSLA run
+        no longer blocks User B from running TSLA, but it still rejects the
+        same user double-submitting. Without ``user_id``, the check is global
+        (legacy single-tenant behavior, used when auth is disabled).
         """
+        sql = "SELECT 1 FROM runs WHERE ticker=? AND status IN ('queued','running')"
+        params: list = [ticker]
+        if user_id is not None:
+            sql += " AND user_id=?"
+            params.append(user_id)
+        sql += " LIMIT 1"
         with self._conn() as conn:
-            row = conn.execute(
-                "SELECT 1 FROM runs WHERE ticker=? AND status IN ('queued','running') LIMIT 1",
-                (ticker,),
-            ).fetchone()
+            row = conn.execute(sql, params).fetchone()
             return row is not None
 
     def get_run(self, run_id: str) -> Optional[RunDetail]:
@@ -265,13 +272,30 @@ class JobStore:
             return None
         return _row_to_detail(row)
 
-    def list_runs(self, limit: int = 100) -> List[RunSummary]:
+    def list_runs(
+        self, limit: int = 100, *, user_id: Optional[str] = None
+    ) -> List[RunSummary]:
+        """List runs, most recent first.
+
+        ``user_id`` filters to that user's rows. Pre-auth rows (no user_id)
+        are visible to the synthetic 'anonymous' user; this lets a deployment
+        flip auth on without orphaning historical runs.
+        """
+        sql = (
+            "SELECT id, ticker, analysis_date, status, created_at, started_at, "
+            "finished_at, rating, error FROM runs"
+        )
+        params: list = []
+        if user_id is not None:
+            if user_id == "anonymous":
+                sql += " WHERE user_id IS NULL OR user_id=?"
+            else:
+                sql += " WHERE user_id=?"
+            params.append(user_id)
+        sql += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
         with self._conn() as conn:
-            rows = conn.execute(
-                "SELECT id, ticker, analysis_date, status, created_at, started_at, finished_at, "
-                "rating, error FROM runs ORDER BY created_at DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
+            rows = conn.execute(sql, params).fetchall()
         return [
             RunSummary(
                 id=r["id"],
@@ -336,6 +360,9 @@ class JobStore:
 def _row_to_detail(row: sqlite3.Row) -> RunDetail:
     config = json.loads(row["config_json"])
     final_state = json.loads(row["final_state_json"]) if row["final_state_json"] else {}
+    # Tolerate the user_id column being absent on extremely old DBs that
+    # somehow missed the migration. The column is nullable on new DBs anyway.
+    user_id = row["user_id"] if "user_id" in row.keys() else None
     return RunDetail(
         id=row["id"],
         ticker=row["ticker"],
@@ -357,6 +384,7 @@ def _row_to_detail(row: sqlite3.Row) -> RunDetail:
         final_trade_decision=final_state.get("final_trade_decision"),
         investment_debate_state=final_state.get("investment_debate_state"),
         risk_debate_state=final_state.get("risk_debate_state"),
+        user_id=user_id,
     )
 
 

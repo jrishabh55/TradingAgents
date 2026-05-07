@@ -131,6 +131,9 @@ class RunDetail(BaseModel):
     risk_debate_state: Optional[Dict[str, Any]] = None
     # True when this run is being returned as a cache hit. See RunSummary.cached.
     cached: bool = False
+    # Owner of this run. Populated by the auth middleware via store.create_run.
+    # 'anonymous' for pre-auth (legacy) rows when no auth backend is configured.
+    user_id: Optional[str] = None
 
 
 class EventEnvelope(BaseModel):

@@ -71,7 +71,11 @@ Cache completed runs by a hash of the canonicalized `RunRequest`, so identical r
 
 ---
 
-## 3. Auth: replace shared bearer token with real per-user auth
+## 3. Auth: replace shared bearer token with real per-user auth ✅ CODE COMPLETE
+
+> Backend is done end-to-end. **You need to provision Clerk and set 2 env vars** to flip it on. See `apps/api/CLERK_SETUP.md` for the step-by-step. Backend gracefully falls back to legacy shared-bearer or fully-open mode when Clerk isn't configured, so nothing breaks until you intentionally enable it.
+
+
 
 Currently `webapp/app.py:79-90` uses a single shared bearer token via `WEBAPP_AUTH_TOKEN`. Every user is the same identity. No per-user run ownership.
 

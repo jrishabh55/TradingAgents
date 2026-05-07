@@ -22,11 +22,12 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, Response
+from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+from apps.api.auth import auth_middleware, get_verifier
 from apps.api.routes.config import router as config_router
 from apps.api.routes.runs import router as runs_router
 from apps.api.routes.stream import router as stream_router
@@ -76,19 +77,16 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # Bearer-token middleware. Skipped entirely when WEBAPP_AUTH_TOKEN is unset.
-    auth_token = os.environ.get("WEBAPP_AUTH_TOKEN", "").strip()
-    if auth_token:
-        @app.middleware("http")
-        async def bearer_token(request: Request, call_next):
-            # Don't gate static assets or healthcheck — the SPA needs to load
-            # before it can attach the token.
-            if request.url.path == "/" or request.url.path.startswith("/static") or request.url.path == "/health":
-                return await call_next(request)
-            sent = request.headers.get("authorization", "")
-            if not sent.startswith("Bearer ") or sent[7:] != auth_token:
-                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="unauthorized")
-            return await call_next(request)
+    # Auth: Clerk JWT preferred, legacy shared-bearer fallback, otherwise open.
+    # Always installed — populates request.state.user_id for every request, so
+    # routes can scope by user without conditional logic. See apps/api/auth.py.
+    app.middleware("http")(auth_middleware)
+    if get_verifier() is not None:
+        logger.info("Clerk auth enabled (CLERK_JWKS_URL configured)")
+    elif os.environ.get("WEBAPP_AUTH_TOKEN", "").strip():
+        logger.info("Legacy shared-bearer auth enabled (WEBAPP_AUTH_TOKEN set)")
+    else:
+        logger.info("Auth disabled — every request runs as 'anonymous'")
 
     # Routes.
     app.include_router(config_router, prefix="/api")
