@@ -8,6 +8,7 @@ run for ticker" gate) is exercised in a separate FastAPI TestClient suite.
 """
 from __future__ import annotations
 
+import sqlite3
 import time
 from pathlib import Path
 
@@ -174,6 +175,64 @@ def test_find_cached_run_returns_most_recent(store: JobStore):
     assert cached is not None
     assert cached.id == newer_id
     assert cached.id != older_id
+
+
+def test_init_schema_migrates_old_db(tmp_path: Path):
+    """JobStore must boot on a DB created before request_hash/user_id existed.
+
+    Regression for a real production-boot bug: the original schema script
+    created indexes on (request_hash) AND CREATE TABLE IF NOT EXISTS, so on
+    an existing pre-migration DB the table was untouched and the index
+    creation hit "no such column: request_hash". Fix splits the schema into
+    tables → migrations → indexes, ensuring columns exist before indexes
+    reference them.
+    """
+    db_path = tmp_path / "old.sqlite"
+    # Simulate a DB created on the original schema (no request_hash, no user_id).
+    with sqlite3.connect(db_path) as conn:
+        conn.executescript(
+            """
+            CREATE TABLE runs (
+                id            TEXT PRIMARY KEY,
+                ticker        TEXT NOT NULL,
+                analysis_date TEXT NOT NULL,
+                status        TEXT NOT NULL,
+                created_at    TEXT NOT NULL,
+                started_at    TEXT,
+                finished_at   TEXT,
+                config_json   TEXT NOT NULL,
+                decision_text TEXT,
+                rating        TEXT,
+                final_state_json TEXT,
+                error         TEXT
+            );
+            CREATE TABLE events (
+                id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id    TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+                seq       INTEGER NOT NULL,
+                ts        TEXT NOT NULL,
+                type      TEXT NOT NULL,
+                data_json TEXT NOT NULL,
+                UNIQUE(run_id, seq)
+            );
+            INSERT INTO runs(id, ticker, analysis_date, status, created_at, config_json)
+            VALUES ('legacy-1', 'AAPL', '2026-01-01', 'completed', '2026-01-01T00:00:00Z', '{}');
+            """
+        )
+
+    # Constructing the store must not raise — this is the production path.
+    store = JobStore(db_path)
+
+    # New columns exist after migration.
+    with sqlite3.connect(db_path) as conn:
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(runs)").fetchall()}
+    assert "request_hash" in cols
+    assert "user_id" in cols
+
+    # The legacy row is still there and queryable through the new code path.
+    detail = store.get_run("legacy-1")
+    assert detail is not None
+    assert detail.user_id is None  # migrated row was untouched
 
 
 def test_find_cached_run_user_scope(store: JobStore):

@@ -14,6 +14,7 @@
     "deploy": "pnpm build && wrangler deploy"
   },
   "dependencies": {
+    "@clerk/react": "^6.6.0",
     "@cloudflare/vite-plugin": "^1.26.0",
     "@fontsource-variable/geist": "^5.2.8",
     "@tailwindcss/vite": "^4.1.18",

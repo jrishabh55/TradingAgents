@@ -6,25 +6,36 @@ __pycache__/
 # C extensions
 *.so
 
-# Distribution / packaging
+# Distribution / packaging — anchored to repo root with leading slash so
+# they don't accidentally match nested `lib/`, `build/`, `dist/`, `var/`
+# directories under apps/web/ (which holds the TS frontend source) or
+# inside any future workspace package.
 .Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-share/python-wheels/
+/build/
+/develop-eggs/
+/dist/
+/downloads/
+/eggs/
+/.eggs/
+/lib/
+/lib64/
+/parts/
+/sdist/
+/var/
+/wheels/
+/share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
 MANIFEST
+
+# JS-side build output (apps/web/dist, etc.). These ARE intended to be
+# nested-matching since any frontend package may produce a dist/ folder.
+apps/web/dist/
+apps/*/dist/
+apps/*/.tanstack/
+apps/*/.wrangler/
+apps/*/.output/
 
 # PyInstaller
 #   Usually these files are written by a python script from a template

@@ -23,7 +23,12 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 from apps.api.schemas import EventEnvelope, RunDetail, RunStatus, RunSummary
 
 
-_SCHEMA = """
+# Tables only — indexes go into _SCHEMA_INDEXES below so they're created
+# AFTER _apply_runs_migrations has had a chance to add columns the indexes
+# reference. On a fresh DB the column is created by _SCHEMA_TABLES; on an
+# upgraded DB it's added by _apply_runs_migrations. Either way the index
+# build sees the column.
+_SCHEMA_TABLES = """
 CREATE TABLE IF NOT EXISTS runs (
     id            TEXT PRIMARY KEY,
     ticker        TEXT NOT NULL,
@@ -41,15 +46,6 @@ CREATE TABLE IF NOT EXISTS runs (
     user_id       TEXT
 );
 
-CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
-CREATE INDEX IF NOT EXISTS idx_runs_ticker_status ON runs(ticker, status);
-CREATE INDEX IF NOT EXISTS idx_runs_created_at ON runs(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_runs_hash_completed
-    ON runs(request_hash, created_at DESC)
-    WHERE status = 'completed';
-CREATE INDEX IF NOT EXISTS idx_runs_user_created
-    ON runs(user_id, created_at DESC);
-
 CREATE TABLE IF NOT EXISTS events (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id    TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
@@ -59,7 +55,17 @@ CREATE TABLE IF NOT EXISTS events (
     data_json TEXT NOT NULL,
     UNIQUE(run_id, seq)
 );
+"""
 
+_SCHEMA_INDEXES = """
+CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
+CREATE INDEX IF NOT EXISTS idx_runs_ticker_status ON runs(ticker, status);
+CREATE INDEX IF NOT EXISTS idx_runs_created_at ON runs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_runs_hash_completed
+    ON runs(request_hash, created_at DESC)
+    WHERE status = 'completed';
+CREATE INDEX IF NOT EXISTS idx_runs_user_created
+    ON runs(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_events_run_seq ON events(run_id, seq);
 """
 
@@ -116,8 +122,13 @@ class JobStore:
 
     def _init_schema(self) -> None:
         with self._init_lock, self._conn() as conn:
-            conn.executescript(_SCHEMA)
+            # Step 1: create tables (no-op if they already exist).
+            conn.executescript(_SCHEMA_TABLES)
+            # Step 2: add columns missing on older DBs. Must run BEFORE the
+            # index step because some indexes reference columns added here.
             self._apply_runs_migrations(conn)
+            # Step 3: create indexes — now safe to reference any migrated column.
+            conn.executescript(_SCHEMA_INDEXES)
 
     def _apply_runs_migrations(self, conn: sqlite3.Connection) -> None:
         """Idempotently apply ALTER TABLE migrations for columns added later.
