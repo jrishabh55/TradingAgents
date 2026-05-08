@@ -1,0 +1,74 @@
+# TradingAgents API — DEVELOPMENT image (hot reload, source bind-mounted).
+#
+# Differences from the production Dockerfile:
+#   * Single stage — smaller image, fewer moving parts; we don't care
+#     about runtime size in dev.
+#   * Source is NOT COPY'd in; docker-compose.dev.yml bind-mounts the host
+#     repo at /app so file edits hot-reload via uvicorn --reload.
+#   * Editable install (`pip install -e .`) so the bind-mounted source
+#     IS the package — no rebuild needed when you change a .py file.
+#   * Default CMD runs uvicorn with --reload-dir scoped to the Python
+#     source dirs, avoiding the .git / node_modules / dist watch storm.
+#
+# Build context: repository root.
+# Build with:
+#   docker compose -f docker-compose.dev.yml build api
+# Run with:
+#   docker compose -f docker-compose.dev.yml up
+
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# System deps that some Python wheels need at runtime (yfinance pulls in
+# lxml; cryptography wheels are usually pure-Python on Linux but keep gcc
+# around so unusual platforms can still build). git is handy for any pip
+# install -e from a VCS dep.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+        build-essential \
+        curl \
+        git \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install dependencies in a separate layer so editing source code never
+# busts the install cache. The bind mount at runtime overlays /app with
+# the host's repo, but the venv (in /usr/local/lib/python3.12) is
+# untouched — pip-installed deps survive the overlay.
+#
+# We copy ONLY the files pip needs to resolve metadata + install:
+#   pyproject.toml + uv.lock → upstream package + its dependencies
+#   apps/api/requirements.txt → fastapi, uvicorn, sse-starlette, pyjwt
+#
+# The README and LICENSE are referenced from pyproject.toml; if they
+# aren't present, pip install . fails with "no such file" even though
+# they're not used at runtime.
+COPY pyproject.toml uv.lock README.md LICENSE ./
+COPY tradingagents ./tradingagents
+COPY cli ./cli
+COPY apps/api/requirements.txt ./apps/api/requirements.txt
+
+RUN pip install --no-cache-dir -e . \
+ && pip install --no-cache-dir -r apps/api/requirements.txt
+
+# At runtime apps/api/ is bind-mounted from the host. The editable install
+# above wrote a .pth file in site-packages pointing to /app, so Python
+# resolves `import tradingagents`, `import cli`, and `import apps.api.X`
+# from whatever is at /app at request time — i.e. the bind mount.
+
+EXPOSE 8080
+
+# uvicorn --reload watches files for changes. --reload-dir scopes it so
+# we don't waste CPU watching .git/, .venv/, node_modules/, dist/, etc.
+# When you add a fourth Python source dir, list it here too.
+CMD ["uvicorn", "apps.api.app:app", \
+     "--host", "0.0.0.0", \
+     "--port", "8080", \
+     "--reload", \
+     "--reload-dir", "apps/api", \
+     "--reload-dir", "tradingagents", \
+     "--reload-dir", "cli"]

@@ -33,3 +33,9 @@ If a web-layer change *seems* to require touching the core, stop and ask first �
 - "Backend" in this project, unless qualified, means the **web/proxy backend** (`apps/api/`), not the Python agent framework.
 - "Frontend" means `apps/web/`.
 - "The CLI" or "the agent core" means the `cli/` + `tradingagents/` Python code — only touch it on explicit request.
+
+## Dev workflow
+
+- `DEV.md` (project root) — Docker dev compose + native dev workflows, env-var conventions, common gotchas. Read this first if the user is debugging a dev-environment problem rather than a code problem.
+- `docker-compose.dev.yml` (project root) — single-command dev stack (api + web with hot reload). Uses `apps/api/Dockerfile.dev`.
+- `apps/api/CLERK_SETUP.md` — Clerk provisioning + frontend wiring guide.

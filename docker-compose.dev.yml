@@ -1,0 +1,126 @@
+# Dev compose — hot reload on both sides.
+#
+#   ┌──────────────────────────────────┐         ┌──────────────────────────────┐
+#   │  web   (apps/web/)               │         │  api  (apps/api/)            │
+#   │  Vite dev + workerd + HMR        │  /api/* │  uvicorn --reload            │
+#   │  http://localhost:3000           │ ──────▶ │  http://localhost:8080       │
+#   │  source bind-mount → HMR         │         │  source bind-mount → reload  │
+#   └──────────────────────────────────┘         └──────────────────────────────┘
+#               │                                         │
+#               └──────── docker network ─────────────────┘
+#                       (internal DNS: api:8080)
+#
+# Run from the repo root:
+#   docker compose -f docker-compose.dev.yml up --build
+#
+# First boot builds both images (~3 min). Subsequent boots reuse cache (~30s).
+# Source edits hot-reload — no rebuild needed unless you change deps.
+#
+# Workflow:
+#   * Edit files under apps/api/, apps/web/, tradingagents/, cli/ — they
+#     reload automatically inside the containers.
+#   * Add a Python dep (apps/api/requirements.txt or pyproject.toml):
+#       docker compose -f docker-compose.dev.yml up --build api
+#   * Add a JS dep (apps/web/package.json):
+#       docker compose -f docker-compose.dev.yml up --build web
+#   * Run tests inside the api container:
+#       docker compose -f docker-compose.dev.yml exec api pytest tests/
+#   * Reset the SQLite DB (start fresh):
+#       docker compose -f docker-compose.dev.yml down -v
+#
+# The named volume tradingagents_data_dev is SEPARATE from the prod
+# volume tradingagents_data (used by apps/api/docker-compose.yml). This
+# keeps your local dev runs out of any production data and vice versa.
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile.dev
+    image: tradingagents-api-dev:latest
+    env_file:
+      - .env
+    environment:
+      WEBAPP_DB_PATH: /home/appuser/.tradingagents/webapp.sqlite
+      WEBAPP_REPORTS_DIR: /home/appuser/.tradingagents/webapp_reports
+      WEBAPP_PER_USER_MEMORY_DIR: /home/appuser/.tradingagents/memory_per_user
+      # Dev-friendly concurrency. Per-user serialization in the runner
+      # makes >1 safe across users; bump this if you simulate multiple
+      # sign-ins concurrently. See apps/api/jobs/runner.py.
+      WEBAPP_CONCURRENCY: "4"
+      # Open CORS for the dev origin. Tightening this in prod is fine
+      # because the Cloudflare worker proxies same-origin.
+      WEBAPP_CORS_ORIGINS: "*"
+      # CLERK_JWKS_URL and CLERK_ISSUER come from the project-root .env
+      # via env_file above. They're what flips Clerk auth on. Unset
+      # both (in .env) to fall back to legacy or open mode.
+    volumes:
+      # Source code → /app. Hot reload picks up file changes inside.
+      # Read-write because uvicorn's filewatcher needs to see mtime
+      # updates atomically; some editors (vim with backup, JetBrains)
+      # do delete+rename which fails on read-only mounts.
+      - .:/app
+      # Persistent data: SQLite job DB, per-run report archive, memory
+      # logs. Kept in a named volume so `docker compose down` doesn't
+      # nuke your run history.
+      - tradingagents_data_dev:/home/appuser/.tradingagents
+    ports:
+      - "8080:8080"
+    networks:
+      - tradingagents_dev_net
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health').read()",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      # Allow extra time on first boot — pip's editable install + first
+      # uvicorn import of tradingagents/langgraph takes a few seconds.
+      start_period: 30s
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    image: tradingagents-web-dev:latest
+    environment:
+      # Internal DNS: the API service is reachable at hostname `api`
+      # within the compose network. The entrypoint rewrites
+      # apps/web/wrangler.jsonc with this URL before Vite starts so
+      # the Cloudflare Worker dev proxy in apps/web/src/routes/api.$.tsx
+      # forwards /api/* to http://api:8080.
+      WEBAPP1_API_BASE: http://api:8080
+    ports:
+      - "3000:3000"
+    volumes:
+      # Source mounts for HMR. node_modules stays inside the image
+      # because it contains Linux-only binaries (workerd, esbuild,
+      # lightningcss) that don't match the host's macOS/Windows arch.
+      - ./apps/web/src:/app/src
+      - ./apps/web/vite.config.ts:/app/vite.config.ts
+      - ./apps/web/tsconfig.json:/app/tsconfig.json
+      - ./apps/web/package.json:/app/package.json
+      # NOTE: wrangler.jsonc is intentionally NOT mounted. The
+      # entrypoint rewrites it with the in-network backend hostname;
+      # mounting from the host would persist that rewrite back to
+      # your repo and create spurious git diffs.
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - tradingagents_dev_net
+    restart: unless-stopped
+
+networks:
+  tradingagents_dev_net:
+    name: tradingagents_dev_net
+
+volumes:
+  tradingagents_data_dev:
+    name: tradingagents_data_dev
