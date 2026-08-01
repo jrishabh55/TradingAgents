@@ -1,5 +1,19 @@
 # Autonomous session report — 2026-05-08
 
+> **Superseded in places — read this first (updated 2026-08-02).** This report
+> was accurate when written; two claims below have since been overtaken:
+>
+> - **"Frontend Clerk wiring did NOT ship"** — it shipped in `0ee0b16`, and
+>   Clerk is now provisioned (`CLERK_JWKS_URL` / `CLERK_ISSUER` on the backend,
+>   `VITE_CLERK_PUBLISHABLE_KEY` on the frontend). `/api/*` returns 401
+>   unauthenticated. Task 3 is live, not "awaiting provisioning".
+> - **"55 passed"** — the suite is now 642 passing / 2 skipped, and it includes
+>   the full upstream tests this report skipped.
+>
+> Also since: a dev Docker stack with hot reload on both sides (`dcace72`), and
+> a rebase onto upstream v0.3.1 (67 commits). See TASKS.md §7 for the gaps that
+> pull exposed.
+
 Worked through TASKS.md tasks 1–4. The web layer now has a clean monorepo
 shape, run caching, Clerk-ready auth, and safe multi-user concurrency.
 Everything that requires user action is documented and isolated to a single
