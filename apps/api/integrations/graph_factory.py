@@ -13,7 +13,9 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from cli.models import AnalystType
 from cli.stats_handler import StatsCallbackHandler
+from cli.utils import detect_asset_type, filter_analysts_for_asset_type
 from tradingagents.default_config import DEFAULT_CONFIG
 from tradingagents.graph.trading_graph import TradingAgentsGraph
 from apps.api.schemas import RunRequest
@@ -29,6 +31,22 @@ def _safe_user_dir(user_id: str) -> str:
     """Sanitize a user id into a single filesystem-safe directory component."""
     sanitized = _USER_ID_SAFE_RE.sub("_", user_id).strip("_")
     return sanitized or "anonymous"
+
+
+def effective_analysts(request: RunRequest) -> List[str]:
+    """The analysts that will actually run, after asset-type filtering.
+
+    The CLI drops the Fundamentals analyst on crypto tickers (a coin has no
+    balance sheet), so the API has to do the same or agents get asked for
+    fundamentals that don't exist. Both the graph and the SSE translator read
+    this, so the pipeline and the UI can never disagree about which panels to
+    expect. Pure string work — cheap enough to call more than once.
+    """
+    asset_type = detect_asset_type(request.ticker)
+    kept = filter_analysts_for_asset_type(
+        [AnalystType(a) for a in request.analysts], asset_type
+    )
+    return [a.value for a in kept]
 
 
 def build_graph_for_request(
@@ -48,7 +66,7 @@ def build_graph_for_request(
     serialization (handled by the runner's per-user lock).
     """
     config = _build_config(request, user_id=user_id)
-    selected_analysts: List[str] = list(request.analysts)
+    selected_analysts: List[str] = effective_analysts(request)
     stats_handler = StatsCallbackHandler()
 
     graph = TradingAgentsGraph(
@@ -57,8 +75,22 @@ def build_graph_for_request(
         debug=False,
         callbacks=[stats_handler],
     )
+    # Mirror TradingAgentsGraph._run_graph's state wiring, since the runner
+    # streams graph.graph.stream() directly instead of calling propagate():
+    # detect the asset type from the ticker (as the CLI does) and resolve the
+    # instrument identity once, so agents anchor to the real company rather
+    # than pattern-matching the price chart to a wrong one.
+    #
+    # Not mirrored: _run_graph also passes past_context (the memory log's prior
+    # runs for this ticker), so API runs are not influenced by earlier runs the
+    # way CLI runs are. Open product question — the per-user log is currently
+    # write-only from the API's perspective.
+    asset_type = detect_asset_type(request.ticker).value
     init_state = graph.propagator.create_initial_state(
-        request.ticker, request.analysis_date
+        request.ticker,
+        request.analysis_date,
+        asset_type=asset_type,
+        instrument_context=graph.resolve_instrument_context(request.ticker, asset_type),
     )
     stream_args = graph.propagator.get_graph_args(callbacks=[stats_handler])
     return graph, init_state, stream_args, stats_handler

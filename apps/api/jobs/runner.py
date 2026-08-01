@@ -138,10 +138,19 @@ class JobRunner:
     ) -> None:
         # Local imports keep the module importable in tests without the upstream
         # graph package fully resolved.
-        from apps.api.integrations.graph_factory import build_graph_for_request
+        from apps.api.integrations.graph_factory import (
+            build_graph_for_request,
+            effective_analysts,
+        )
         from tradingagents.agents.utils.rating import parse_rating
 
-        translator = ChunkTranslator(run_id, selected_analysts=request.analysts)
+        # Use the post-filter analyst list, not request.analysts: on a crypto
+        # ticker the Fundamentals analyst is dropped, and the translator's list
+        # is what run.started reports to the frontend. Passing the unfiltered
+        # list would leave the UI waiting on a panel that never emits.
+        translator = ChunkTranslator(
+            run_id, selected_analysts=effective_analysts(request)
+        )
 
         # Build graph + initial state with per-user memory log. This may raise
         # if config is invalid; it'll propagate up to _run_safely and become
