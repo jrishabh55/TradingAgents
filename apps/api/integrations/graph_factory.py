@@ -69,11 +69,33 @@ def build_graph_for_request(
     selected_analysts: List[str] = effective_analysts(request)
     stats_handler = StatsCallbackHandler()
 
-    graph = TradingAgentsGraph(
+    # The local helper is selected as its own provider key in the UI, then mapped
+    # here onto openai_compatible + the helper's base URL. The credential is
+    # resolved at construction time and never enters `config`, because
+    # store.create_run persists request.model_dump() as config_json — a token on
+    # RunRequest would be written to SQLite in plaintext and also reach SSE
+    # events and saved reports.
+    from apps.api.integrations.helper_backend import (
+        HelperBackedGraph,
+        helper_base_url,
+        helper_credential,
+        is_helper_provider,
+    )
+
+    graph_cls: Any = TradingAgentsGraph
+    extra: Dict[str, Any] = {}
+    if is_helper_provider(request.llm_provider):
+        config["llm_provider"] = "openai_compatible"
+        config["backend_url"] = request.backend_url or helper_base_url()
+        graph_cls = HelperBackedGraph
+        extra["api_key"] = helper_credential()
+
+    graph = graph_cls(
         selected_analysts,
         config=config,
         debug=False,
         callbacks=[stats_handler],
+        **extra,
     )
     # Mirror TradingAgentsGraph._run_graph's state wiring, since the runner
     # streams graph.graph.stream() directly instead of calling propagate():

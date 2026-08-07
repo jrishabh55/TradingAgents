@@ -91,6 +91,36 @@ def get_config() -> ConfigResponse:
         for label, key, backend_url, caps in _PROVIDERS
     ]
     models_by_provider = {key: _models_for_provider(key) for _, key, _, _ in _PROVIDERS}
+
+    # The local helper appears as its own provider so the user never has to paste
+    # a URL. Its models come from the provider's quirks row, not a hardcoded
+    # list — model choice stays with the user, per run. Listed first because when
+    # it IS running it is usually the intended option.
+    from apps.api.integrations.helper_backend import (
+        HELPER_PROVIDER_KEY,
+        HELPER_PROVIDER_LABEL,
+        helper_base_url,
+        helper_enabled,
+        helper_models,
+    )
+
+    if helper_enabled():
+        providers.insert(
+            0,
+            ProviderOption(
+                key=HELPER_PROVIDER_KEY,
+                label=HELPER_PROVIDER_LABEL,
+                backend_url=helper_base_url(),
+                # Effort rides in the model name (see the alias table), so there
+                # is no separate effort control for this provider.
+                supports_reasoning_effort=False,
+                supports_google_thinking=False,
+                supports_anthropic_effort=False,
+            ),
+        )
+        models_by_provider[HELPER_PROVIDER_KEY] = [
+            ModelOption(id=value, label=label) for label, value in helper_models()
+        ]
     return ConfigResponse(
         analysts=_ANALYSTS,
         research_depths=_RESEARCH_DEPTHS,
