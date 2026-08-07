@@ -17,7 +17,12 @@ from pydantic import BaseModel, Field
 
 # Status vocabulary for jobs. Aligned with the SSE event taxonomy in
 # apps/api/jobs/translator.py.
-RunStatus = Literal["queued", "running", "completed", "failed", "cancelled"]
+# "interrupted" is a RESUMABLE state, distinct from "failed": the run did not
+# error, the process went away underneath it (deploy, crash, laptop sleep). Only
+# runs in this state are candidates for checkpoint resume.
+RunStatus = Literal[
+    "queued", "running", "completed", "failed", "cancelled", "interrupted"
+]
 
 
 # Fields that participate in the cache key. Anything that changes the

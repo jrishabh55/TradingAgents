@@ -43,7 +43,17 @@ CREATE TABLE IF NOT EXISTS runs (
     final_state_json TEXT,
     error         TEXT,
     request_hash  TEXT,
-    user_id       TEXT
+    user_id       TEXT,
+    -- LangGraph checkpoint namespace. Scoped per RUN, not per ticker+date:
+    -- upstream's thread_id(ticker, date, signature) carries no user id, and the
+    -- API deliberately allows the same ticker concurrently across users, so
+    -- reusing it would let one user's resume continue another user's graph.
+    checkpoint_ns TEXT,
+    -- Effective graph config at launch, minus secrets. config_json holds the
+    -- REQUEST, while the graph re-applies an env-derived DEFAULT_CONFIG, so a
+    -- restart could otherwise silently resume under a different temperature or
+    -- retry policy than the run started with.
+    effective_config_json TEXT
 );
 
 CREATE TABLE IF NOT EXISTS events (
@@ -76,6 +86,8 @@ CREATE INDEX IF NOT EXISTS idx_events_run_seq ON events(run_id, seq);
 _RUNS_TABLE_MIGRATIONS = [
     ("request_hash", "TEXT"),
     ("user_id", "TEXT"),
+    ("checkpoint_ns", "TEXT"),
+    ("effective_config_json", "TEXT"),
 ]
 
 
