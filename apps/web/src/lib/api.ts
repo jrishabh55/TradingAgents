@@ -56,6 +56,48 @@ async function authHeaders(): Promise<Record<string, string>> {
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
+/** An HTTP error that keeps the parsed body, so callers can act on it.
+ *
+ *  Needed because some 4xx bodies are structured — a rejected ticker carries
+ *  `detail.suggestions`, which the UI offers as one-tap fixes. Regexing those
+ *  back out of a message string would break the moment the wording changes.
+ */
+export class ApiError extends Error {
+  readonly status: number
+  readonly detail: unknown
+
+  constructor(status: number, statusText: string, detail: unknown, raw: string) {
+    const message =
+      detail && typeof detail === 'object' && 'message' in detail
+        ? String((detail as { message: unknown }).message)
+        : typeof detail === 'string'
+          ? detail
+          : `${status} ${statusText}: ${raw}`
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.detail = detail
+  }
+}
+
+/** Narrow an unknown error to the rejected-ticker shape, if that's what it is. */
+export function noMarketDataDetail(
+  err: unknown,
+): { message: string; ticker: string; suggestions: string[] } | null {
+  if (!(err instanceof ApiError)) return null
+  const d = err.detail
+  if (!d || typeof d !== 'object') return null
+  const rec = d as Record<string, unknown>
+  if (rec.code !== 'no_market_data') return null
+  return {
+    message: String(rec.message ?? err.message),
+    ticker: String(rec.ticker ?? ''),
+    suggestions: Array.isArray(rec.suggestions)
+      ? rec.suggestions.map(String)
+      : [],
+  }
+}
+
 async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
@@ -66,8 +108,15 @@ async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
     },
   })
   if (!res.ok) {
-    const text = await res.text().catch(() => '')
-    throw new Error(`${res.status} ${res.statusText}: ${text}`)
+    const raw = await res.text().catch(() => '')
+    let detail: unknown = raw
+    try {
+      const parsed = JSON.parse(raw) as { detail?: unknown }
+      detail = parsed?.detail ?? parsed
+    } catch {
+      /* non-JSON body (proxy error page, empty 502) — keep the raw text */
+    }
+    throw new ApiError(res.status, res.statusText, detail, raw)
   }
   return res.json() as Promise<T>
 }

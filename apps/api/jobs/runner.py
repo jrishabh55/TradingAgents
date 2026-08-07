@@ -38,6 +38,38 @@ from apps.api.schemas import RunRequest
 logger = logging.getLogger(__name__)
 
 
+# Tools whose failure means the run has no prices to reason about. Fundamentals
+# are deliberately absent: an index or commodity legitimately has none, and
+# news/sentiment already degrade to sentinels inside the core.
+_PRICE_TOOLS = {"get_stock_data", "get_indicators", "get_verified_market_snapshot"}
+
+# Literal prefix the core's vendor router returns for a core category with no
+# usable data (tradingagents/dataflows/interface.py). Matching the TOOL RESULT
+# rather than the analyst's report is deliberate: the report is LLM prose and
+# would be written in the run's `output_language`, so any string match against it
+# breaks the moment someone runs in Hindi or Chinese.
+_NO_DATA_SENTINEL = "NO_DATA_AVAILABLE"
+
+
+def find_price_data_failure(chunk: Dict[str, Any]) -> Optional[str]:
+    """Return a reason string when a price tool reported no usable data.
+
+    Scans the chunk's ToolMessages for the core's no-data sentinel. Returns None
+    when prices are fine, so the caller can treat this as a cheap per-chunk gate.
+    """
+    for message in chunk.get("messages", []) or []:
+        name = str(getattr(message, "name", "") or "")
+        if name not in _PRICE_TOOLS:
+            continue
+        content = getattr(message, "content", None)
+        if not isinstance(content, str):
+            continue
+        if content.lstrip().startswith(_NO_DATA_SENTINEL):
+            # Keep the core's own detail (invalid symbol / stale / not covered).
+            return f"{name}: {content.strip()[:400]}"
+    return None
+
+
 class _CancelToken:
     """Cooperative cancellation flag, polled between graph chunks."""
 
@@ -180,6 +212,23 @@ class JobRunner:
                     return
                 for env in translator.handle_chunk(chunk):
                     self._publish(run_id, env)
+
+                # Fail fast when prices are unavailable. Preflight catches a bad
+                # symbol at submit time; this catches a vendor that broke between
+                # submit and the market analyst's call. Breaking the loop
+                # abandons the generator, so the remaining agents never run —
+                # the alternative is paying for a debate over nothing and
+                # emitting a rating with no data behind it.
+                reason = find_price_data_failure(chunk)
+                if reason is not None:
+                    logger.warning("Run %s aborted — no price data. %s", run_id, reason)
+                    self._fail(
+                        run_id,
+                        "Market data unavailable — run stopped before the "
+                        f"remaining agents ran. {reason}",
+                        None,
+                    )
+                    return
                 # Snapshot in-progress state so the download endpoint can
                 # serve a partial report mid-run.
                 self.store.update_final_state(run_id, translator.final_state)

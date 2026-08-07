@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { api } from '#/lib/api'
+import { api, noMarketDataDetail } from '#/lib/api'
 import type {
   ConfigResponse,
   RunRequest,
@@ -61,6 +61,9 @@ export function FlowLanding() {
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /* Symbols the backend verified DO have data, when the submitted one didn't.
+     Offered as one-tap fixes (NSEI → ^NSEI). */
+  const [tickerSuggestions, setTickerSuggestions] = useState<string[]>([])
 
   const today = useMemo(() => new Date().toISOString().slice(0, 10), [])
   const [form, setForm] = useState<FlowState>({
@@ -116,13 +119,14 @@ export function FlowLanding() {
     }))
   }
 
-  async function startRun() {
+  async function startRun(tickerOverride?: string) {
     if (!config) return
     setSubmitting(true)
     setError(null)
+    setTickerSuggestions([])
     const provider = config.providers.find((p) => p.key === form.provider)
     const body: RunRequest = {
-      ticker: form.ticker.trim().toUpperCase(),
+      ticker: (tickerOverride ?? form.ticker).trim().toUpperCase(),
       analysis_date: form.date,
       analysts: form.analysts,
       research_depth: form.depth,
@@ -146,10 +150,24 @@ export function FlowLanding() {
       const detail = await api.createRun(body)
       navigate({ to: '/runs/$id', params: { id: detail.id } })
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e)
-      setError(msg)
+      /* A ticker with no price data is rejected before the pipeline starts, so
+         no tokens were spent — show the verified alternatives instead of a
+         bare error. */
+      const noData = noMarketDataDetail(e)
+      if (noData) {
+        setError(noData.message)
+        setTickerSuggestions(noData.suggestions)
+      } else {
+        setError(e instanceof Error ? e.message : String(e))
+      }
       setSubmitting(false)
     }
+  }
+
+  /** Adopt a suggested symbol and immediately retry with it. */
+  function useSuggestion(symbol: string) {
+    patch({ ticker: symbol })
+    void startRun(symbol)
   }
 
   const analystSummary =
@@ -176,7 +194,9 @@ export function FlowLanding() {
           config={config}
           submitting={submitting}
           onClose={() => setShowAdvanced(false)}
-          onStart={startRun}
+          /* Same reason as the button below — FlowAdvanced wires this straight
+             to onClick, so an unwrapped startRun would receive the event. */
+          onStart={() => startRun()}
         />
       ) : (
         <div style={{ flex: 1, overflow: 'auto', padding: '60px 24px' }}>
@@ -271,7 +291,9 @@ export function FlowLanding() {
                     fontSize: 14,
                     marginRight: 6,
                   }}
-                  onClick={startRun}
+                  /* Wrapped, not passed directly: React would hand the
+                     MouseEvent to startRun's tickerOverride parameter. */
+                  onClick={() => startRun()}
                   disabled={submitting || form.analysts.length === 0}
                 >
                   {submitting ? 'Starting…' : 'Start analysis →'}
@@ -386,6 +408,30 @@ export function FlowLanding() {
                 }}
               >
                 {error}
+                {tickerSuggestions.length > 0 && (
+                  <div
+                    style={{
+                      marginTop: 10,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8,
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <span style={{ color: 'var(--text-3)' }}>Try:</span>
+                    {tickerSuggestions.map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        className="es-btn sm es-mono"
+                        disabled={submitting}
+                        onClick={() => useSuggestion(s)}
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 

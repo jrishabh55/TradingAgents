@@ -64,6 +64,14 @@ def create_run(
     request: RunRequest,
     response: Response,
     force: bool = False,
+    skip_preflight: bool = Query(
+        False,
+        description=(
+            "Enqueue even when the ticker has no resolvable price data. Separate "
+            "from `force` on purpose — `force` bypasses the result cache, which "
+            "must not also disable data validation."
+        ),
+    ),
     user_id: str = Depends(current_user_id),
 ) -> RunDetail:
     """Create + enqueue a run, or return a cached completed run.
@@ -71,6 +79,11 @@ def create_run(
     When a completed run exists for the same canonicalized request within
     ``WEBAPP_CACHE_TTL_SECONDS``, returns it with HTTP 200 and ``cached=true``
     instead of starting a fresh pipeline. Pass ``?force=true`` to bypass.
+
+    The ticker is resolved against the price vendor before anything is enqueued;
+    a symbol with no OHLCV is rejected with HTTP 400 and did-you-mean
+    suggestions rather than spending a full pipeline producing a rating with no
+    data behind it. ``?skip_preflight=true`` overrides.
 
     On a cache miss, the pipeline is enqueued and the new run row is returned
     with HTTP 201. The new run is owned by ``user_id`` (resolved by the auth
@@ -96,6 +109,27 @@ def create_run(
             cached.cached = True
             response.status_code = status.HTTP_200_OK
             return cached
+
+    # Resolve prices before spending anything. Runs after the cache lookup so a
+    # cache hit stays instant, and before the active-run guard so a typo can't
+    # occupy the per-user ticker slot. On success this warms the OHLCV cache the
+    # market analyst is about to read.
+    if not skip_preflight:
+        from apps.api.integrations.preflight import preflight_ticker
+
+        check = preflight_ticker(request.ticker, request.analysis_date)
+        if not check.ok:
+            # Structured so the UI can offer the suggestions as one-tap fixes
+            # instead of regexing them back out of a sentence.
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "no_market_data",
+                    "message": check.as_error_detail(),
+                    "ticker": check.ticker,
+                    "suggestions": check.suggestions,
+                },
+            )
 
     # Active-run guard is per-user: User A starting a TSLA run no longer
     # blocks User B from running TSLA. Same-user same-ticker double-submits
