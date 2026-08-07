@@ -106,6 +106,13 @@ services:
       - ./apps/web/vite.config.ts:/app/vite.config.ts
       - ./apps/web/tsconfig.json:/app/tsconfig.json
       - ./apps/web/package.json:/app/package.json
+      # Bind-mount apps/web/.env into the container so Vite can read
+      # VITE_CLERK_PUBLISHABLE_KEY (and any other VITE_* the app needs).
+      # The .env file is in apps/web/.dockerignore — that exclusion is
+      # CORRECT (we never want secrets baked into a built image) — but it
+      # means dev needs this explicit bind mount to bridge the gap.
+      # Edits to apps/web/.env take effect on the next Vite restart.
+      - ./apps/web/.env:/app/.env
       # NOTE: wrangler.jsonc is intentionally NOT mounted. The
       # entrypoint rewrites it with the in-network backend hostname;
       # mounting from the host would persist that rewrite back to
