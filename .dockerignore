@@ -13,3 +13,17 @@ results
 eval_results
 Dockerfile
 docker-compose.yml
+
+# Frontend dependencies. The API image builds with the repo root as its
+# context, so without this it ships apps/web/node_modules — 531 MB of
+# Linux/macOS-specific binaries (workerd, esbuild, lightningcss) that the
+# Python image has no use for. Matters most on a remote builder like Dokploy,
+# where the whole context crosses the network.
+node_modules
+
+# Local dev state that must never bake into an image.
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+**/data_cache/
+reports/

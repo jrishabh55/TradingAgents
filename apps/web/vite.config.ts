@@ -14,10 +14,21 @@ import { cloudflare } from '@cloudflare/vite-plugin'
 const API_BACKEND =
   process.env.WEBAPP1_API_BASE ?? 'http://127.0.0.1:8080'
 
+/* VITE_ALLOWED_HOSTS: comma-separated public hostnames this server may answer
+   for. Vite rejects requests whose Host header it doesn't recognise ("Blocked
+   request. This host is not allowed."), which is a DNS-rebinding guard — good
+   default, but it means a reverse proxy forwarding a real domain (Dokploy →
+   Traefik → this container) gets blocked until the domain is listed here.
+   Unset leaves Vite's own defaults untouched, so local dev is unaffected. */
+const ALLOWED_HOSTS = process.env.VITE_ALLOWED_HOSTS?.split(',')
+  .map((h) => h.trim())
+  .filter(Boolean)
+
 const config = defineConfig({
   resolve: { tsconfigPaths: true },
   server: {
     port: 3000,
+    ...(ALLOWED_HOSTS?.length ? { allowedHosts: ALLOWED_HOSTS } : {}),
     proxy: {
       '/api': {
         target: API_BACKEND,

@@ -1,0 +1,143 @@
+# Dokploy deployment for the web layer (api + web).
+#
+# Derived from apps/web/docker-compose.fullstack.yml, with the things that only
+# work on a developer's laptop removed. Point Dokploy at this file:
+#
+#   Application type: Docker Compose
+#   Compose path:     docker-compose.dokploy.yml
+#   Domains tab:      web  → port 3000   (your public domain)
+#
+# Do NOT add a domain for `api`. The browser talks to the API through the web
+# service's /api/* catch-all proxy (apps/web/src/routes/api.$.tsx), so it stays
+# same-origin and SSE needs no CORS. Exposing `api` publicly would also expose
+# an endpoint that spends LLM credits.
+#
+# Differences from the fullstack compose, and why:
+#   - No `env_file: .env` — .env is gitignored, so it does not exist in
+#     Dokploy's clone and compose would abort. Values come from Dokploy's
+#     Environment panel and are interpolated below.
+#   - `expose` instead of `ports` — Dokploy's Traefik reaches containers over
+#     the compose network; publishing to the host bypasses TLS and can collide.
+#   - No Traefik labels — Dokploy injects them at deploy time from the Domains
+#     tab. Hand-written labels here would fight those.
+#   - No source bind mounts — the image carries the source; a bind mount would
+#     need host paths that don't exist on the server.
+#
+# KNOWN LIMITATION: the `web` image runs Vite's DEV server (see
+# apps/web/Dockerfile — NODE_ENV=development, entrypoint runs `vite dev` under
+# workerd). It works, but it ships source maps, keeps an HMR websocket open, and
+# costs far more memory than a built server. The production fix is to drop
+# @cloudflare/vite-plugin, build a Node server target, and serve that. Tracked
+# as a follow-up; this file is deliberately the shortest path to a live
+# deployment on your own infrastructure.
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    # `:?` makes Dokploy fail the deploy with this message instead of silently
+    # starting an unauthenticated API that anyone can spend your LLM credits on.
+    # For a deliberately open deployment (private network only), change the
+    # CLERK_* lines to `${CLERK_JWKS_URL:-}`.
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?set OPENAI_API_KEY in Dokploy's Environment panel}
+      CLERK_JWKS_URL: ${CLERK_JWKS_URL:?set CLERK_JWKS_URL or the API is publicly unauthenticated}
+      CLERK_ISSUER: ${CLERK_ISSUER:?set CLERK_ISSUER or the API is publicly unauthenticated}
+
+      # Optional providers — only the ones you set become usable at runtime.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      XAI_API_KEY: ${XAI_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      FINNHUB_API_KEY: ${FINNHUB_API_KEY:-}
+      ALPHA_VANTAGE_API_KEY: ${ALPHA_VANTAGE_API_KEY:-}
+      FRED_API_KEY: ${FRED_API_KEY:-}
+
+      # State on the volume so it survives redeploys.
+      WEBAPP_DB_PATH: /home/appuser/.tradingagents/webapp.sqlite
+      WEBAPP_REPORTS_DIR: /home/appuser/.tradingagents/webapp_reports
+      # Worker threads inside this one container. This is how you scale, NOT
+      # replicas — see the comment on `deploy` below.
+      WEBAPP_CONCURRENCY: ${WEBAPP_CONCURRENCY:-4}
+      # Clerk supersedes this; kept empty so the legacy bearer mode stays off.
+      WEBAPP_AUTH_TOKEN: ""
+      # Same-origin through the web proxy, so no cross-origin browser calls.
+      WEBAPP_CORS_ORIGINS: ${WEBAPP_CORS_ORIGINS:-*}
+    expose:
+      - "8080"
+    volumes:
+      # SQLite job DB, per-run report archive, per-user memory logs, and the
+      # OHLCV cache. apps/api/Dockerfile pre-creates this path owned by
+      # appuser so the named volume inherits that ownership on first mount —
+      # without it the container cannot write its own database.
+      - tradingagents_data:/home/appuser/.tradingagents
+    healthcheck:
+      # /health is the one unauthenticated route, so this works with Clerk on.
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health').read()
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+    deploy:
+      # MUST stay 1. The job store is SQLite on a volume, the per-user run
+      # locks are in-process threading.Locks, and the SSE EventBus is
+      # in-process. With 2 replicas a browser attached to replica B receives no
+      # events for a run executing on replica A, and the per-user
+      # serialization that makes concurrency safe stops working.
+      replicas: 1
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    environment:
+      # Internal DNS on the compose network. The entrypoint patches
+      # wrangler.jsonc with this so workerd's /api/* proxy reaches the API.
+      WEBAPP1_API_BASE: http://api:8080
+      # Vite reads VITE_*-prefixed variables straight from the process
+      # environment (vite/dist/node/chunks/node.js: it copies every process.env
+      # key matching the prefix), so no .env file is needed in the image.
+      VITE_CLERK_PUBLISHABLE_KEY: ${VITE_CLERK_PUBLISHABLE_KEY:?set VITE_CLERK_PUBLISHABLE_KEY or the sign-in UI cannot load}
+      # Comma-separated public hostnames. REQUIRED: Vite's dev server rejects
+      # requests whose Host header it doesn't recognise ("Blocked request. This
+      # host is not allowed."), and Traefik forwards your real domain. Set this
+      # to the same domain you configure in Dokploy's Domains tab.
+      VITE_ALLOWED_HOSTS: ${VITE_ALLOWED_HOSTS:?set VITE_ALLOWED_HOSTS to your public domain, e.g. app.example.com}
+    expose:
+      - "3000"
+    healthcheck:
+      # Quoted, and no `? :` ternary — a bare `" : "` inside a YAML plain
+      # scalar parses as a mapping and compose rejects the item.
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      # Vite's first cold start installs nothing but does optimize deps.
+      start_period: 60s
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  tradingagents_data:
+
+# If you deploy WITHOUT Dokploy's "Isolated Deployments" setting, both services
+# also need to join Dokploy's shared Traefik network for domain routing to
+# reach them. In that case uncomment the block below and add
+# `networks: [dokploy-network]` to each service.
+#
+# networks:
+#   dokploy-network:
+#     external: true
