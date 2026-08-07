@@ -691,15 +691,45 @@ usable token.
 
 ---
 
-## 8. Open unknowns
+## 8. Unknowns
+
+### 8.1 Resolved in M0 (measured, 2026-08-08)
+
+**U2 — RESOLVED: no reasoning echo is required. `opaque` is dropped.**
+A two-turn tool loop was run against the live endpoint with
+`include: ["reasoning.encrypted_content"]` set. Turn 1 returned exactly one
+output item — `function_call` — and **no `reasoning` item at all**, so there is
+nothing to echo. Turn 2, replaying `[user, function_call, function_call_output]`
+with no reasoning item, returned the correct answer. The tool loop is therefore
+fully stateless.
+
+Consequences: `NormalizedRequest.opaque` and `NormalizedResponse.opaque` are
+removed; the helper holds **no conversation state**; the conversation-prefix
+digest and its in-memory-vs-durable decision are deleted; §2.8 collapses to
+"replay history verbatim, add nothing". This is also what makes Codex finding #6
+moot rather than merely mitigated — there was never a channel needed.
+
+**U5 — RESOLVED: five models are accepted, not one.**
+`gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.5` and `gpt-5.4` all
+return `response.created`. Only `gpt-5`, `gpt-5-codex` and `codex-mini-latest`
+are rejected — the names in the third-party prior art are simply stale.
+
+Consequences: the model-alias mechanism from finding #2 gains real work — map
+the quick tier to `luna` and the deep tier to `sol` so the 10 legwork agents stop
+consuming frontier quota. Aliases carry `(real_model, reasoning_effort)`.
+
+**New quirk found while probing: `max_output_tokens` is rejected outright**
+(`400 Unsupported parameter: max_output_tokens`). Inbound Chat Completions
+carries `max_tokens` / `max_completion_tokens`, so the adapter must place these
+in `strip_params`, never translate them. Without this every call 400s.
+
+### 8.2 Still open
 
 | # | Unknown | Experiment | Gates |
 |---|---|---|---|
-| U1 | Redirect URI other than `http://localhost:1455/auth/callback` allowed? 1455 collides with a live `codex login`. | Build the authorize URL with port 1456 and open it — an unregistered URI errors before any token is issued. Free. | M3 |
-| U2 | Must encrypted reasoning items be echoed on later tool-loop turns? | Two-turn run (tool call → result → second call), with and without the reasoning item. ~400 tokens. | **M1** (§2.8) |
-| U3 | Does the refresh grant rotate the refresh token, invalidating Codex CLI's copy? | Refresh with a copy; compare the returned `refresh_token`. | M3 |
+| U1 | Redirect URI other than `http://localhost:1455/auth/callback` allowed? 1455 collides with a live `codex login`. | Build the authorize URL with port 1456 and open it — an unregistered URI errors before any token is issued. Free, but needs a real browser round-trip. | M3 |
+| U3 | Does the refresh grant rotate the refresh token, invalidating Codex CLI's copy? | Refresh with a copy; compare the returned `refresh_token`. **Warn the user first — if rotation is on, this invalidates their working `codex login` until they re-authenticate.** | M3 |
 | U4 | Rate limits for a 12-agent run on Pro. | One depth-1 single-analyst run; count 429s. | M2 |
-| U5 | Do `gpt-5.6-terra` / `luna` work? Cheap quick-thinker. | Repeat the 400-probe per name; ~0 tokens on rejection. | M2 (aliases, §5.3) |
 
 ---
 
