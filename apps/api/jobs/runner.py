@@ -70,6 +70,18 @@ def find_price_data_failure(chunk: Dict[str, Any]) -> Optional[str]:
     return None
 
 
+def _prior_state(detail) -> Optional[Dict[str, Any]]:
+    """The report sections an interrupted attempt already produced."""
+    if detail is None:
+        return None
+    keys = (
+        "market_report", "sentiment_report", "news_report", "fundamentals_report",
+        "investment_plan", "trader_investment_plan", "final_trade_decision",
+        "investment_debate_state", "risk_debate_state",
+    )
+    return {k: v for k in keys if (v := getattr(detail, k, None)) is not None}
+
+
 class _CancelToken:
     """Cooperative cancellation flag, polled between graph chunks."""
 
@@ -105,6 +117,8 @@ class JobRunner:
         # run in parallel.
         self._user_locks: Dict[str, threading.Lock] = {}
         self._user_locks_lock = threading.Lock()
+        # run_id -> graph, so the finally block can close its checkpointer.
+        self._graphs: Dict[str, Any] = {}
 
     def _get_user_lock(self, user_id: str) -> threading.Lock:
         """Return the (lazily-created) lock for ``user_id``."""
@@ -121,12 +135,18 @@ class JobRunner:
         request: RunRequest,
         *,
         user_id: str = "anonymous",
+        resume: bool = False,
     ) -> None:
-        """Hand the run off to the worker pool. Returns immediately."""
+        """Hand the run off to the worker pool. Returns immediately.
+
+        ``resume=True`` continues an interrupted run from its last checkpoint
+        instead of starting the graph over. The caller must already have won
+        ``store.claim_for_resume`` — this method does not arbitrate.
+        """
         token = _CancelToken()
         with self._tokens_lock:
             self._cancel_tokens[run_id] = token
-        self.executor.submit(self._run_safely, run_id, request, token, user_id)
+        self.executor.submit(self._run_safely, run_id, request, token, user_id, resume)
 
     def cancel(self, run_id: str) -> bool:
         with self._tokens_lock:
@@ -147,19 +167,24 @@ class JobRunner:
         request: RunRequest,
         token: _CancelToken,
         user_id: str,
+        resume: bool = False,
     ) -> None:
         try:
             # Per-user lock: blocks only OTHER runs from the SAME user. Held
             # for the entire pipeline so the memory log read-modify-write is
             # serialized within a user. Different users hit different locks.
             with self._get_user_lock(user_id):
-                self._run(run_id, request, token, user_id)
+                self._run(run_id, request, token, user_id, resume=resume)
         except Exception as exc:  # pragma: no cover — defensive
             logger.exception("Runner crashed for run %s", run_id)
             self._fail(run_id, repr(exc), traceback.format_exc())
         finally:
             with self._tokens_lock:
                 self._cancel_tokens.pop(run_id, None)
+            # The SqliteSaver context is opened in graph_factory and parked on the
+            # graph. Close it on EVERY exit path — error, cancel, early return —
+            # or the handle leaks for the process lifetime.
+            self._close_checkpointer(run_id)
 
     def _run(
         self,
@@ -167,6 +192,7 @@ class JobRunner:
         request: RunRequest,
         token: _CancelToken,
         user_id: str,
+        resume: bool = False,
     ) -> None:
         # Local imports keep the module importable in tests without the upstream
         # graph package fully resolved.
@@ -180,16 +206,36 @@ class JobRunner:
         # ticker the Fundamentals analyst is dropped, and the translator's list
         # is what run.started reports to the frontend. Passing the unfiltered
         # list would leave the UI waiting on a panel that never emits.
+        #
+        # On resume, seed the sequence counter and the accumulated state from
+        # storage. A fresh translator would restart seq at 0 and collide with the
+        # events already persisted for this run (UNIQUE(run_id, seq)), and would
+        # re-emit sections the interrupted attempt had already produced.
+        prior_detail = self.store.get_run(run_id) if resume else None
         translator = ChunkTranslator(
-            run_id, selected_analysts=effective_analysts(request)
+            run_id,
+            selected_analysts=effective_analysts(request),
+            start_seq=self.store.latest_seq(run_id) if resume else 0,
+            replay_state=_prior_state(prior_detail) if resume else None,
         )
 
         # Build graph + initial state with per-user memory log. This may raise
         # if config is invalid; it'll propagate up to _run_safely and become
         # a run.failed event.
         graph, init_state, args, stats_handler = build_graph_for_request(
-            request, user_id=user_id
+            request, user_id=user_id, run_id=run_id
         )
+        # Record what a resume needs BEFORE any work happens: the namespace, and
+        # the effective config the graph actually launched with (config_json holds
+        # the request, and the graph re-applies env-derived defaults on top).
+        self._graphs[run_id] = graph
+        ns = (args.get("config", {}).get("configurable", {}) or {}).get("thread_id")
+        if ns:
+            self.store.set_checkpoint_context(
+                run_id,
+                checkpoint_ns=ns,
+                effective_config=_redact_config(dict(graph.config)),
+            )
 
         self.store.mark_running(run_id)
         self._publish(
@@ -205,8 +251,12 @@ class JobRunner:
             self._cancelled(run_id, translator)
             return
 
+        # LangGraph resumes only when invoked with input=None: the checkpointer
+        # supplies the state. Resending init_state would start the graph again
+        # from the top, which is exactly what resume exists to avoid.
+        stream_input = None if resume else init_state
         try:
-            for chunk in graph.graph.stream(init_state, **args):
+            for chunk in graph.graph.stream(stream_input, **args):
                 if token.is_cancelled():
                     self._cancelled(run_id, translator)
                     return
@@ -328,6 +378,18 @@ class JobRunner:
             self._last_stats = {}
         self._last_stats[run_id] = snapshot
         self._publish(run_id, translator._event("stats.update", snapshot))
+
+    def _close_checkpointer(self, run_id: str) -> None:
+        graph = self._graphs.pop(run_id, None)
+        ctx = getattr(graph, "_checkpointer_ctx", None) if graph is not None else None
+        if ctx is None:
+            return
+        try:
+            ctx.__exit__(None, None, None)
+        except Exception:  # noqa: BLE001 — teardown must never mask the real error
+            logger.debug("checkpointer teardown failed for %s", run_id, exc_info=True)
+        finally:
+            graph._checkpointer_ctx = None
 
     def _fail(self, run_id: str, error: str, tb: Optional[str]) -> None:
         self.store.mark_failed(run_id, error)

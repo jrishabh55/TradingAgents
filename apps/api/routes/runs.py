@@ -7,6 +7,7 @@ Routes:
   POST /api/runs/{run_id}/cancel       request cooperative cancel
   GET  /api/runs/{run_id}/report.md    download as markdown
   GET  /api/runs/{run_id}/levels       computed stop / target / position size
+  POST /api/runs/{run_id}/resume       continue an interrupted run
 """
 from __future__ import annotations
 
@@ -219,6 +220,52 @@ def download_report(
         media_type="text/markdown; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.post("/runs/{run_id}/resume", response_model=RunDetail)
+def resume_run(
+    run_id: str,
+    user_id: str = Depends(current_user_id),
+) -> RunDetail:
+    """Continue an interrupted run from its last completed node.
+
+    Only ``interrupted`` runs are resumable — a failed run errored and would
+    error again, and a completed one has nothing to do. The claim is an atomic
+    ``interrupted -> running`` UPDATE, so two concurrent resume requests cannot
+    both start the graph against the same checkpoint.
+    """
+    store = get_store()
+    detail = store.get_run(run_id)
+    if detail is None or not _user_owns(detail, user_id):
+        raise HTTPException(status_code=404, detail="run not found")
+    if detail.status != "interrupted":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"run is {detail.status}; only interrupted runs can be resumed",
+        )
+    if store.get_checkpoint_context(run_id) is None:
+        # Without a checkpoint there is nothing to continue from; resuming would
+        # silently restart the whole pipeline and bill for it again.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "this run has no checkpoint, so it cannot be resumed — it was "
+                "started with checkpoint_enabled=false. Start a new run instead."
+            ),
+        )
+
+    if not store.claim_for_resume(run_id, user_id=user_id):
+        # Someone else won the race between our status read and the claim.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="run is already being resumed",
+        )
+
+    request = RunRequest(**detail.config)
+    get_runner().submit(run_id, request, user_id=user_id, resume=True)
+
+    resumed = store.get_run(run_id)
+    return resumed if resumed is not None else detail
 
 
 @router.get("/runs/{run_id}/levels", response_model=LevelsResponse)

@@ -268,6 +268,78 @@ class JobStore:
                 (_utcnow(), run_id),
             )
 
+    # ---------- interruption and resume ----------
+
+    def sweep_orphaned_runs(self) -> int:
+        """Mark rows the previous process abandoned as ``interrupted``.
+
+        Sweeps BOTH ``queued`` and ``running``: a queued row's future died with
+        the executor just as surely as a running one, and leaving it queued means
+        it is never picked up and never explained. Called once at startup.
+
+        Returns the number of rows swept.
+        """
+        with self._conn() as conn:
+            cur = conn.execute(
+                "UPDATE runs SET status='interrupted', finished_at=?,"
+                " error=COALESCE(error, ?)"
+                " WHERE status IN ('queued','running')",
+                (_utcnow(), "process restarted before this run finished"),
+            )
+            return cur.rowcount or 0
+
+    def mark_interrupted(self, run_id: str, reason: str) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE runs SET status='interrupted', finished_at=?, error=?"
+                " WHERE id=? AND status IN ('queued','running')",
+                (_utcnow(), reason, run_id),
+            )
+
+    def claim_for_resume(self, run_id: str, *, user_id: Optional[str] = None) -> bool:
+        """Atomically move ``interrupted`` -> ``running``. True if we won.
+
+        The guard is in the WHERE clause rather than a read-then-write, so two
+        concurrent resume requests cannot both proceed and run the same graph
+        twice against the same checkpoint.
+        """
+        sql = ("UPDATE runs SET status='running', finished_at=NULL, error=NULL"
+               " WHERE id=? AND status='interrupted'")
+        params: list = [run_id]
+        if user_id is not None:
+            sql += " AND COALESCE(user_id,'anonymous')=?"
+            params.append(user_id)
+        with self._conn() as conn:
+            return (conn.execute(sql, params).rowcount or 0) == 1
+
+    def set_checkpoint_context(
+        self, run_id: str, *, checkpoint_ns: str, effective_config: Dict[str, Any]
+    ) -> None:
+        """Record what a resume needs: the namespace and the launch-time config.
+
+        ``effective_config`` must already be secret-free — it is persisted.
+        """
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE runs SET checkpoint_ns=?, effective_config_json=? WHERE id=?",
+                (checkpoint_ns, json.dumps(effective_config, sort_keys=True, default=str), run_id),
+            )
+
+    def get_checkpoint_context(self, run_id: str) -> Optional[Dict[str, Any]]:
+        """``{"checkpoint_ns": ..., "effective_config": {...}}`` or None."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT checkpoint_ns, effective_config_json FROM runs WHERE id=?",
+                (run_id,),
+            ).fetchone()
+        if row is None or not row[0]:
+            return None
+        try:
+            cfg = json.loads(row[1]) if row[1] else {}
+        except (TypeError, ValueError):
+            cfg = {}
+        return {"checkpoint_ns": row[0], "effective_config": cfg}
+
     def has_active_run_for_ticker(
         self, ticker: str, *, user_id: Optional[str] = None
     ) -> bool:

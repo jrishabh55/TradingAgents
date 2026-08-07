@@ -50,7 +50,14 @@ def create_app() -> FastAPI:
     async def lifespan(app: FastAPI):
         # Initialise singletons. Doing this in the lifespan (not at import time)
         # keeps unit tests in control of WEBAPP_DB_PATH overrides.
-        get_store()
+        store = get_store()
+        # Any run still queued or running belongs to a process that no longer
+        # exists. Sweep BOTH states: a queued row's future died with the previous
+        # executor just as surely as a running one, and leaving it queued means it
+        # is never picked up and never explained to the user.
+        swept = store.sweep_orphaned_runs()
+        if swept:
+            logger.info("marked %d orphaned run(s) as interrupted", swept)
         bus = get_bus()
         bus.attach_loop(asyncio.get_running_loop())
         get_runner()

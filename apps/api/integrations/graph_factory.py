@@ -49,10 +49,22 @@ def effective_analysts(request: RunRequest) -> List[str]:
     return [a.value for a in kept]
 
 
+def checkpoint_namespace(run_id: str, user_id: Optional[str]) -> str:
+    """Per-RUN checkpoint thread id.
+
+    Deliberately not upstream's ``thread_id(ticker, date, signature)``: that
+    carries no user id, and the API permits the same ticker concurrently across
+    users, so two people analysing AAPL would share one checkpoint and each
+    resume could continue the other's graph.
+    """
+    return f"{_safe_user_dir(user_id or 'anonymous')}:{run_id}"
+
+
 def build_graph_for_request(
     request: RunRequest,
     *,
     user_id: Optional[str] = None,
+    run_id: Optional[str] = None,
 ) -> Tuple[TradingAgentsGraph, Dict[str, Any], Dict[str, Any], StatsCallbackHandler]:
     """Return ``(graph, init_state, stream_args, stats_handler)``.
 
@@ -115,6 +127,23 @@ def build_graph_for_request(
         instrument_context=graph.resolve_instrument_context(request.ticker, asset_type),
     )
     stream_args = graph.propagator.get_graph_args(callbacks=[stats_handler])
+
+    # Checkpointing: upstream wires this inside propagate(), which the runner
+    # bypasses, so request.checkpoint_enabled was a silent no-op here. Compile
+    # with a saver and inject the thread id so a crashed run can resume from its
+    # last completed node. The context manager is parked on the graph — upstream
+    # already declares _checkpointer_ctx — so the runner can close it in a
+    # finally block rather than leaking the SQLite handle.
+    if request.checkpoint_enabled and run_id:
+        from tradingagents.graph.checkpointer import get_checkpointer
+
+        ns = checkpoint_namespace(run_id, user_id)
+        ctx = get_checkpointer(config["data_cache_dir"], ns)
+        saver = ctx.__enter__()
+        graph._checkpointer_ctx = ctx
+        graph.graph = graph.workflow.compile(checkpointer=saver)
+        stream_args.setdefault("config", {}).setdefault("configurable", {})["thread_id"] = ns
+
     return graph, init_state, stream_args, stats_handler
 
 

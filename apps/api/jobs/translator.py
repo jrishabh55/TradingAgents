@@ -48,10 +48,21 @@ class ChunkTranslator:
     it after the loop ends without re-walking the trace.
     """
 
-    def __init__(self, run_id: str, *, selected_analysts: List[str]) -> None:
+    def __init__(
+        self,
+        run_id: str,
+        *,
+        selected_analysts: List[str],
+        start_seq: int = 0,
+        replay_state: Optional[Dict[str, Any]] = None,
+    ) -> None:
         self.run_id = run_id
         self.selected_analysts = [a for a in ANALYST_ORDER if a in selected_analysts]
-        self._seq = 0
+        # On resume this is seeded from the store. A fresh translator restarting
+        # at 0 would collide with the events already persisted for this run,
+        # violating the UNIQUE(run_id, seq) constraint and corrupting replay
+        # ordering for any client reconnecting to the stream.
+        self._seq = start_seq
         self._processed_message_ids: Set[str] = set()
         # Track which agents we've already announced as completed/started so we
         # don't emit duplicate transition events on every chunk.
@@ -67,7 +78,16 @@ class ChunkTranslator:
         # Accumulating fragment lengths so we can publish only the new chars.
         self._debate_lengths: Dict[str, int] = {}
         # Accumulated final state — last-write-wins for each top-level key.
-        self.final_state: Dict[str, Any] = {}
+        # Seeded on resume from the snapshot the interrupted attempt persisted,
+        # so sections it already produced are treated as known rather than
+        # re-emitted as if new.
+        self.final_state: Dict[str, Any] = dict(replay_state or {})
+        # Mark analysts whose report already exists as completed, so a resume
+        # does not re-announce started/completed for work that is done.
+        for analyst_key, report_key in ANALYST_REPORT_MAP.items():
+            if self.final_state.get(report_key):
+                self._analyst_completed.add(analyst_key)
+                self._announced_started.add(analyst_key)
 
     # ---------- public ----------
 

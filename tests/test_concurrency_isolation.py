@@ -135,7 +135,7 @@ def test_runner_submit_threads_user_id_into_safely(runner: JobRunner, monkeypatc
     """submit() forwards user_id to _run_safely."""
     captured = {}
 
-    def fake_safely(run_id, request, token, user_id):
+    def fake_safely(run_id, request, token, user_id, *_a, **_kw):
         captured["run_id"] = run_id
         captured["user_id"] = user_id
         captured["request_ticker"] = request.ticker
@@ -152,7 +152,7 @@ def test_runner_submit_defaults_user_id_to_anonymous(runner: JobRunner, monkeypa
     """submit() without user_id uses the synthetic anonymous user."""
     captured = {}
 
-    def fake_safely(run_id, request, token, user_id):
+    def fake_safely(run_id, request, token, user_id, *_a, **_kw):
         captured["user_id"] = user_id
 
     monkeypatch.setattr(runner, "_run_safely", fake_safely)
@@ -172,7 +172,7 @@ def test_two_users_concurrent_runs_dont_block_each_other(runner: JobRunner, monk
     barrier = threading.Barrier(2, timeout=2.0)
     arrived = []
 
-    def fake_safely(run_id, request, token, user_id):
+    def fake_safely(run_id, request, token, user_id, *_a, **_kw):
         with runner._get_user_lock(user_id):
             arrived.append(user_id)
             barrier.wait()  # both must reach here for the test to pass
@@ -198,7 +198,7 @@ def test_same_user_concurrent_runs_serialize(runner: JobRunner, monkeypatch):
     inside_max = [0]
     lock_for_observers = threading.Lock()
 
-    def fake_safely(run_id, request, token, user_id):
+    def fake_safely(run_id, request, token, user_id, *_a, **_kw):
         with runner._get_user_lock(user_id):
             with lock_for_observers:
                 inside.append(run_id)
