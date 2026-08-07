@@ -5,24 +5,30 @@ A small local daemon presenting an **OpenAI Chat Completions** endpoint on
 day one; Anthropic and others addable later without restructuring. The
 TradingAgents pipeline points at it via `backend_url`; no upstream core edits.
 
+> **Revision 3** — incorporates the Codex review (22 findings, 9 BLOCKER).
+> Dispositions in Appendix A. Milestones re-derived in §10: **M0–M2 grew
+> 2.5 d → 5.0 d.** Two review claims were themselves wrong and are corrected
+> below with evidence (§0e, §0f).
+
 ---
 
-## 0. Established wire contract (validated — do not re-probe)
+## 0. Established facts
+
+### 0.1 Wire contract (validated — do not re-probe)
 
 ```
 POST https://chatgpt.com/backend-api/codex/responses
 Authorization: Bearer <access_token>
 chatgpt-account-id: <from id_token claim>
 originator: codex_cli_rs
-session_id: <uuid4>
+session_id: <uuid4 — per request, see §2.7>
 Accept: text/event-stream
 
 { "model": "gpt-5.6-sol",     // ONLY this; gpt-5 / gpt-5-codex /
   "store": false,             //   codex-mini-latest → 400
   "stream": true,             // both mandatory
   "instructions": "<system>", "input": [<typed items>],
-  "tools": [{type:"function", name, description, strict, parameters}],
-  "tool_choice": "auto",
+  "tools": [{type:"function", name, description, parameters}],
   "text": {"format": {type:"json_schema", name, strict, schema}},
   "reasoning": {"effort": "low|medium|high"},
   "include": ["reasoning.encrypted_content"] }
@@ -31,39 +37,94 @@ Accept: text/event-stream
 SSE events seen: `response.created`, `response.in_progress`,
 `response.output_item.added`, `response.output_text.delta`,
 `response.function_call_arguments.delta`, `.done`,
-`response.output_item.done`, `response.completed` (carries `usage` with
-`input_tokens`, `output_tokens`, `output_tokens_details.reasoning_tokens`).
+`response.output_item.done`, `response.completed` (carries `usage`).
 
-`id_token` claim `https://api.openai.com/auth` →
-`chatgpt_account_id`, `chatgpt_plan_type`, `chatgpt_subscription_active_until`.
+`id_token` claim `https://api.openai.com/auth` → `chatgpt_account_id`,
+`chatgpt_plan_type`, `chatgpt_subscription_active_until`.
 
 OAuth: issuer `https://auth.openai.com`, client_id
 `app_EMoamEEZ73f0CkXaXp7hrann`, PKCE; Codex CLI redirect
-`http://localhost:1455/auth/callback` (other ports UNKNOWN — see U1).
+`http://localhost:1455/auth/callback` (other ports UNKNOWN — U1).
 
-### THREE corrections to the briefing
+### 0.2 Verified repo facts (each checked, not assumed)
 
-**(a) No unknown-model warning will fire.** `openai_compatible` is listed in
-`_ANY_MODEL_PROVIDERS` in `tradingagents/llm_clients/validators.py`, so
-`validate_model("openai_compatible", "gpt-5.6-sol")` → `True`. Verified.
-Nothing to handle. (Warnings in earlier test output came from the `openai` and
-`deepseek` providers, which do validate.)
+**(a) No unknown-model warning.** `openai_compatible` is in
+`_ANY_MODEL_PROVIDERS` (`llm_clients/validators.py`), so
+`validate_model("openai_compatible","gpt-5.6-sol")` → `True`. Nothing to handle.
 
 **(b) Structured output arrives as a TOOL, not `response_format`.**
 `get_capabilities("gpt-5.6-sol").preferred_structured_method ==
-"function_calling"` (the default for any unlisted model), and
-`LocalCompatibleChatOpenAI.with_structured_output()` forces `tool_choice=None`
-on that path. So Trader / Portfolio Manager / Sentiment schemas come through as
-an extra entry in `tools`, answered as a `tool_call`. **Tool translation is the
-entire hot path.** `response_format` → `text.format` is ~20 lines of
-completeness, not critical path. Because `tool_choice` is `None` the model is
-not forced to call the schema tool; `invoke_structured_or_freetext()` already
-degrades to free text.
+"function_calling"`, and `LocalCompatibleChatOpenAI.with_structured_output()`
+sets `tool_choice=None`. **Tool translation is the entire hot path.**
 
-**(c) A per-provider `preferred_structured_method` quirk cannot change agent
-behaviour.** langchain decides client-side, before the helper sees anything. The
-quirk only governs how the helper translates a `response_format` if one
-arrives. Do not expect setting it to alter what the agents send.
+**(c) FOUR schema-bound agents, not three** (review #3, confirmed):
+`trader.py` (`TraderProposal`), `research_manager.py` (`ResearchPlan`),
+`portfolio_manager.py` (`PortfolioDecision`), `sentiment_analyst.py`
+(sentiment schema). All four need fixtures and contract tests.
+
+**(d) `preferred_structured_method` as a quirk cannot change agent behaviour** —
+langchain decides client-side before the helper sees anything. The quirk governs
+only how an inbound `response_format` is translated.
+
+**(e) CORRECTION to review #4's evidence — Codex was RIGHT, the counter-claim
+was wrong.** I verified empirically. Binding `PortfolioDecision` on a
+`LocalCompatibleChatOpenAI` yields:
+
+```
+bound kwargs: ['ls_structured_output_format', 'parallel_tool_calls', 'tools']
+  tool_choice         = <absent from kwargs>
+  parallel_tool_calls = False        ← IS sent
+  strict              = None
+  tool[0].strict      = <absent>
+```
+
+`with_structured_output(method="function_calling")` sets
+`"parallel_tool_calls": False` in `bind_kwargs` (langchain_openai
+`base.py:2402`), and our subclass only overrides `tool_choice`, so it survives.
+`base.py:2157` (`if parallel_tool_calls is not None`) governs the *explicit
+argument* path, not this one. **So `parallel_tool_calls: false` is on the wire
+for all four schema-bound agents** and the adapter must handle it.
+
+**(f) CORRECTION to my own earlier draft — do not hardcode `strict`.** Empirical
+evidence above: langchain sends **no** `strict` field, and `tool_choice` is
+absent entirely (not `null`). Previous drafts said "always `strict:false`" and
+"assume `tool_choice:auto`". Both would add fields the caller never sent.
+**Omit what is absent** (review #5, accepted).
+
+**(g) Review #6 confirmed, and one of its two proposed remedies is
+unavailable.** `_convert_message_to_dict` in langchain_openai builds the
+outbound message from a fixed allowlist — `content`, `name`, `role`,
+`tool_calls` (further filtered to `{id, type, function}`), `function_call`,
+`audio`. There is **no arbitrary `additional_kwargs` passthrough**. So a
+"langchain-preserved extension field" does not exist. Only helper-side
+conversation state is viable (§2.8).
+
+**(h) `thread_id(ticker, date, signature)` has no user_id** — collides across
+users, and the API deliberately allows same-ticker runs from different users
+(review #15 confirmed).
+
+**(i) The API path streams `stream_mode: "values"`** (`propagation.py:78-83`),
+so per-node metadata is NOT in the stream — `last_completed_node` cannot be
+derived from it (review #19 confirmed).
+
+**(j) `RunStatus` has no `interrupted`** (`schemas.py:20`) (review #18
+confirmed).
+
+**(k) `create_run(config=request.model_dump())` writes `config_json`** — an
+`api_key` on `RunRequest` would land in SQLite in plaintext (review #1
+confirmed).
+
+**(l) One kwargs dict feeds both LLM clients** (`trading_graph.py:95-112`), so
+config cannot express per-tier reasoning effort (review #2 confirmed).
+
+**(m) Route-path provider selection works.** Verified on the installed `openai`
+2.33.0: `base_url="http://127.0.0.1:8899/v1/codex"` and `".../v1/codex/"` both
+produce `.../v1/codex/chat/completions`. The SDK appends rather than
+`urljoin`-resolves.
+
+**(n) Exactly one agent hand-builds a system message** (`trader.py`); the other
+prompt-bearing agents use `ChatPromptTemplate`. Empirically the system message
+is always the leading message — relevant to §2.2.
 
 ---
 
@@ -73,598 +134,664 @@ arrives. Do not expect setting it to alter what the agents send.
 
 ```
 langchain (Chat Completions)
-        │
+        │  local bearer token required (§3)
         ▼
-  /v1/{provider}/chat/completions        ← provider chosen by URL path
+  /v1/{provider}/chat/completions      ← provider chosen by URL path
         │
    parse ONCE  ──▶ NormalizedRequest
         │
-   Provider = (name, UpstreamAdapter, CredentialSource, ProviderQuirks)
+   Provider = (name, adapter, credentials, quirks, model_aliases)
         │
-   adapter.send(nreq, creds) ──▶ upstream HTTP ──▶ NormalizedResponse
+   adapter.send(nreq, creds, quirks, ctx) ──▶ upstream ──▶ NormalizedResponse
         │
    render ──▶ Chat Completions JSON
 ```
 
-Two seams, because they vary **independently** and we have multiple
-implementations of each on day one — not speculatively:
+### 1.2 Two seams — and an honest statement of the guarantee
 
 | Seam | Day-one implementations |
 |---|---|
-| `CredentialSource` | `CodexAuthFile` (read-only), `OwnOAuth` (parameterised), `ApiKey` |
+| `CredentialSource` | `CodexAuthFile` (read-only), `OwnOAuth`, `ApiKey` |
 | `UpstreamAdapter` | `CodexResponsesAdapter`, `OpenAIChatCompletionsAdapter` |
 
-The cross-product is real: the Codex adapter works with either
-`CodexAuthFile` or `OwnOAuth`; the Chat Completions adapter works with
-`ApiKey`. That is the justification for the seams — nothing else.
+**Restated guarantee (review #20 accepted).** The earlier "one adapter module +
+one registry entry" claim was aspirational and does not hold for authenticated
+providers: OAuth varies in discovery, grant parameters, token shape, refresh
+rotation, entitlement claims and required headers. The accurate guarantee is:
 
-### 1.2 Explicitly NOT doing
+> Adding a provider means **one new provider package** —
+> `providers/<name>/{adapter.py, auth.py, quirks.py}` — plus **one registry
+> entry**. It must not require edits to the router, the inbound parser, the
+> renderer, the relay, the idempotency layer, or checkpointing.
 
-- **No dynamic plugin loading.** No entry points, no `importlib` discovery.
-- **No config-file-defined providers.** The registry is Python, in-tree.
-- **No capability negotiation.** No runtime probing of what an upstream
-  supports; capabilities are static data (§1.5).
-- **No abstract base-class hierarchy beyond the two Protocols.**
+That is the property the `EchoAdapter` seam test enforces (§7). Auth is
+colocated with its adapter because the two are coupled in practice.
 
-Adding a provider = **one new adapter module + one registry entry.** If it ever
-needs more than that, the seam is in the wrong place and should be moved, not
-generalised.
+`CredentialSource.get()` is **async** — it may perform a network refresh.
 
-### 1.3 `NormalizedRequest`
+### 1.3 Explicitly NOT doing
+
+- No dynamic plugin loading (no entry points, no `importlib` discovery).
+- No config-file-defined providers. The registry is Python, in-tree.
+- No capability negotiation. Capabilities are static data.
+- No abstract base classes beyond the two Protocols.
+
+### 1.4 `NormalizedRequest`
 
 ```python
 @dataclass(frozen=True)
 class ToolDef:
     name: str
     description: str
-    parameters: dict          # JSON Schema
-    strict: bool = False
+    parameters: dict
+    strict: bool | None = None      # None = caller omitted it; do NOT default
 
 @dataclass(frozen=True)
 class ToolCall:
     id: str
     name: str
-    arguments: str            # JSON string, never a dict
+    arguments: str                  # JSON string, never a dict
+
+ABSENT = object()                   # distinguishes "no content" from ""
 
 @dataclass(frozen=True)
 class Msg:
-    role: Literal["user", "assistant", "tool"]
-    content: str | None                       # None, never "" (see §2.4)
-    tool_calls: tuple[ToolCall, ...] = ()     # assistant only
-    tool_call_id: str | None = None           # tool results only
+    role: Literal["system", "developer", "user", "assistant", "tool"]
+    content: str | None | Absent = ABSENT
+    name: str | None = None         # review #7: was being dropped
+    tool_calls: tuple[ToolCall, ...] = ()
+    tool_call_id: str | None = None
 
 @dataclass(frozen=True)
 class NormalizedRequest:
-    model: str
-    instructions: str | None                  # all system/developer msgs joined
+    model: str                      # as received, pre-alias
+    resolved_model: str             # after alias mapping (§5.3)
+    instructions: str | None        # leading system run only (§2.2)
     messages: tuple[Msg, ...]
     tools: tuple[ToolDef, ...] = ()
-    tool_choice: str | ToolChoiceFn | None = None
-    json_schema: JsonSchemaSpec | None = None # from response_format
+    tool_choice: ToolChoice | None = None   # full shape, see §2.3
+    json_schema: JsonSchemaSpec | None = None
     max_output_tokens: int | None = None
     reasoning_effort: str | None = None
-    stream: bool = False                      # inbound intent; see §2.5
-    # Provider-opaque round-trip state (e.g. Codex encrypted reasoning items).
-    # Written and read only by the adapter that owns it; never inspected here.
-    opaque: Mapping[str, Any] = field(default_factory=dict)
+    # Review #4 ACCEPTED: normalize every semantic parameter so an adapter can
+    # deliberately strip or reject it. The parser must never silently drop.
+    temperature: float | None = None
+    top_p: float | None = None
+    parallel_tool_calls: bool | None = None
+    seed: int | None = None
+    stop: tuple[str, ...] = ()
 ```
 
-`opaque` exists because of a real discovered need (§2.3 item 9): Codex may
-require encrypted reasoning items echoed back on later turns of a tool loop.
-Normalising them away would lose data the adapter must resend. It is not a
-generic extension point — no other component may read it.
+`opaque` is **removed** — §0.2(g) proves it cannot round-trip. Conversation
+state is handled in §2.8 instead.
 
-### 1.4 `NormalizedResponse`
+### 1.5 `NormalizedResponse`
 
 ```python
 @dataclass(frozen=True)
 class Usage:
-    input_tokens: int
-    output_tokens: int
-    total_tokens: int
-    reasoning_tokens: int = 0
-    cached_tokens: int = 0
+    input_tokens: int; output_tokens: int; total_tokens: int
+    reasoning_tokens: int = 0; cached_tokens: int = 0
 
 @dataclass(frozen=True)
 class NormalizedResponse:
     text: str | None
     tool_calls: tuple[ToolCall, ...]
-    finish_reason: Literal["stop", "tool_calls", "length", "content_filter"]
+    finish_reason: Literal["stop","tool_calls","length","content_filter"]
     usage: Usage
     model: str
-    opaque: Mapping[str, Any] = field(default_factory=dict)
+    upstream_id: str | None = None      # review #22: response id/created
+    created: int | None = None
+    incomplete_reason: str | None = None  # review #9, diagnostics only
 ```
 
-Rendering to Chat Completions happens in exactly one place, so every provider
-gets an identical, correct response envelope for free.
+Refusals map to `finish_reason="content_filter"` with the refusal text in
+`text`. No separate refusal channel — nothing in this pipeline reads OpenAI's
+`refusal` field (review #9, ACCEPT-WITH-CHANGES).
 
-### 1.5 `ProviderQuirks` — data, not conditionals
+### 1.6 `ProviderQuirks`
 
 ```python
 @dataclass(frozen=True)
 class ProviderQuirks:
-    valid_models: tuple[str, ...]       # () = any model accepted
-    strip_params: frozenset[str]        # {"temperature", "top_p"}
-    mandatory_body: Mapping[str, Any]   # {"store": False, "stream": True}
-    required_headers: Mapping[str, str] # {"originator": "codex_cli_rs"}
-    default_reasoning_effort: str | None
-    json_schema_style: Literal["text_format", "response_format", "none"]
+    valid_models: tuple[str, ...]        # () = accept anything
+    model_aliases: Mapping[str, ModelAlias]   # §5.3
+    reject_params: frozenset[str]        # 400 rather than silent drop
+    strip_params: frozenset[str]         # dropped, logged once
+    mandatory_body: Mapping[str, Any]
+    static_headers: Mapping[str, str]
+    json_schema_style: Literal["text_format","response_format","none"]
+    max_body_bytes: int = 8 * 1024 * 1024
+    request_timeout_s: float = 180.0
 ```
 
-Day-one registry (the entire configuration surface):
+**`reject_params` vs `strip_params` (review #4).** `temperature` on Codex is
+*stripped* (the pipeline sets it from `DEFAULT_CONFIG`/env and cannot be told
+not to), and stripping is logged once per process. Anything semantically
+load-bearing that an upstream cannot honour belongs in `reject_params` so it
+fails loudly rather than changing meaning silently.
+
+### 1.7 Request context (review #12 ACCEPTED)
 
 ```python
-PROVIDERS: dict[str, Provider] = {
-    "codex": Provider(
-        adapter=CodexResponsesAdapter(
-            url="https://chatgpt.com/backend-api/codex/responses"),
-        credentials=chain(CodexAuthFile(), OwnOAuth(
-            issuer="https://auth.openai.com",
-            client_id="app_EMoamEEZ73f0CkXaXp7hrann",
-            redirect_uri="http://localhost:1455/auth/callback",
-            scopes=("openid", "profile", "email", "offline_access"))),
-        quirks=ProviderQuirks(
-            valid_models=("gpt-5.6-sol",),
-            strip_params=frozenset({"temperature", "top_p"}),
-            mandatory_body={"store": False, "stream": True,
-                            "include": ["reasoning.encrypted_content"]},
-            required_headers={"originator": "codex_cli_rs"},
-            default_reasoning_effort="low",
-            json_schema_style="text_format"),
-    ),
-    "openai": Provider(
-        adapter=OpenAIChatCompletionsAdapter(
-            url="https://api.openai.com/v1/chat/completions"),
-        credentials=ApiKey(env="TA_HELPER_OPENAI_API_KEY"),
-        quirks=ProviderQuirks(valid_models=(), strip_params=frozenset(),
-                              mandatory_body={}, required_headers={},
-                              default_reasoning_effort=None,
-                              json_schema_style="response_format"),
-    ),
-}
+@dataclass
+class RequestCtx:
+    deadline_at: float                  # monotonic
+    cancel: asyncio.Event
+    req_id: str
+    trace: str                          # for logs, no payloads
 ```
 
-**Why quirks are separate from the adapter:** one adapter can serve several
-providers with different rules — `OpenAIChatCompletionsAdapter` also fronts a
-local vLLM or an OpenRouter relay, which differ only in model lists and
-parameter support. Adapter = protocol; quirks = deployment. Keeping them
-separate is what stops the second OpenAI-compatible provider from becoming a
-subclass.
-
-### 1.6 Seam Protocols
-
-```python
-class CredentialSource(Protocol):
-    name: str
-    def available(self) -> bool: ...
-    def get(self) -> Credentials: ...    # bearer + account metadata; refreshes
-    def invalidate(self) -> None: ...    # called on 401
-
-@dataclass(frozen=True)
-class Credentials:
-    bearer: str
-    headers: Mapping[str, str] = ()   # e.g. chatgpt-account-id
-    plan: str | None = None
-    expires_at: int | None = None
-    source: str = ""
-
-class UpstreamAdapter(Protocol):
-    async def send(self, nreq: NormalizedRequest, creds: Credentials,
-                   quirks: ProviderQuirks) -> NormalizedResponse: ...
-```
-
-`chain(...)` tries sources in order and picks the first `available()`.
-
-### 1.7 Proof the seam is in the right place — `AnthropicMessagesAdapter`
-
-Not built; sketched to show what a second adapter costs.
-
-- `POST https://api.anthropic.com/v1/messages`, headers
-  `anthropic-version`, `x-api-key` **or** `Authorization: Bearer` for
-  subscription auth.
-- `nreq.instructions` → top-level `system` (already separated — free).
-- `nreq.messages` → `messages[]` with `content` blocks;
-  assistant `tool_calls` → `tool_use` blocks; tool results → `tool_result`
-  blocks keyed by `tool_use_id` (our `ToolCall.id` carries straight over).
-- `nreq.tools` → `{name, description, input_schema}` — `ToolDef` maps 1:1.
-- `stop_reason: "tool_use"` → `finish_reason: "tool_calls"`.
-- `usage.{input_tokens,output_tokens}` → `Usage` directly.
-
-Everything above is a pure function of `NormalizedRequest`. **No changes to
-the router, renderer, relay, idempotency cache, or checkpointing.** That is the
-test the design has to pass, and it does. Credentials would be a second
-`OwnOAuth` instance with different parameters — which is why issuer, client_id
-and redirect are constructor arguments rather than constants.
-
-### 1.8 Provider selection by route path (verified)
-
-`/v1/{provider}/chat/completions`. The pipeline selects a provider purely by
-`backend_url`, using the per-run field it already has — **no new plumbing in
-the repo.**
-
-Verified against the installed `openai` 2.33.0 SDK: a path-prefixed
-`base_url` joins correctly, with or without a trailing slash —
-`base_url="http://127.0.0.1:8899/v1/codex"` and `".../v1/codex/"` both produce
-`http://127.0.0.1:8899/v1/codex/chat/completions`. (The classic
-`urljoin` last-segment-drop gotcha does not apply; the SDK appends rather than
-resolves.)
-
-One helper instance can therefore serve several subscriptions at once, and a
-run's provider is a per-run config value.
-
-`GET /v1/providers` lists configured providers with credential status, so the
-frontend can show what is usable.
-
-### 1.9 Model names are data and they die
-
-`gpt-5` worked for Codex and now 400s. `valid_models` lives in the quirks
-record; an unknown model returns:
-
-```
-400 {"error": {"code": "model_not_supported",
-      "message": "Model 'gpt-5' is not available for provider 'codex'.
-                  Valid models: gpt-5.6-sol"}}
-```
-
-Empty `valid_models` means accept anything (correct for API-key providers,
-where the upstream is the authority).
+`adapter.send(..., ctx)` must abort the upstream HTTP stream when `cancel` is
+set or the deadline passes, and on client disconnect. **Documented limitation:**
+graph-level cancellation stays cooperative — `_CancelToken` is polled between
+chunks, so today an in-flight LLM call keeps billing. Wiring cancel through to
+`ctx.cancel` is part of M5, not M1; until then the helper's own deadline is the
+only bound.
 
 ---
 
-## 2. Chat Completions ⇄ NormalizedRequest ⇄ Codex Responses
+## 2. Translation
 
-### 2.1 Inbound parse (once, provider-independent)
+### 2.1 Inbound parse (provider-independent)
 
-| Chat Completions | NormalizedRequest |
+All semantic parameters are captured (§1.4). Nothing is dropped here — dropping
+is an adapter decision driven by quirks.
+
+### 2.2 `instructions` vs message roles (review #7 ACCEPT-WITH-CHANGES)
+
+Hoist **only a leading contiguous run** of `system`/`developer` messages into
+`instructions`. Any later system/developer message stays in `input` as a message
+item with its role preserved, so late instructions keep their precedence.
+
+Rejected the stronger "never hoist" form: §0.2(n) shows the system message is
+always leading in this pipeline, and Codex requires `instructions` to be
+populated, so unconditional non-hoisting would send an empty `instructions` for
+every call. `Msg.name` is now preserved and `ABSENT` distinguishes missing
+content from `""`.
+
+### 2.3 `tool_choice` — every shape mapped (review #5 ACCEPTED)
+
+| Inbound | Codex Responses |
 |---|---|
-| `messages[role=system\|developer]` | `instructions`, blank-line joined, wherever they appear |
-| other `messages` | `messages` |
-| `tools[].function` | `tools` (`ToolDef`) |
-| `tool_choice` | `tool_choice` |
-| `response_format.json_schema` | `json_schema` |
-| `max_tokens` / `max_completion_tokens` | `max_output_tokens` |
-| `reasoning_effort` | `reasoning_effort` |
-| `temperature`, `top_p` | dropped per `quirks.strip_params` |
+| absent | omit (**do not synthesise `"auto"`**) |
+| `"auto"` / `"none"` / `"required"` | passthrough |
+| `{"type":"function","function":{"name":N}}` | `{"type":"function","name":N}` |
+| named tool not in `tools` | **400** `tool_choice_unknown_tool` |
 
-### 2.2 `CodexResponsesAdapter` — NormalizedRequest → upstream
+`strict` is passed through when present and **omitted when absent** — never
+defaulted (§0.2(f)). `parallel_tool_calls` maps to the Responses field of the
+same name; if a future provider cannot express it, it goes in `reject_params`.
+
+### 2.4 `CodexResponsesAdapter` — item shapes
 
 ```
-instructions            → "instructions"
-Msg(user)               → {type:"message", role:"user",
-                           content:[{type:"input_text", text}]}
-Msg(assistant, text)    → {type:"message", role:"assistant",
-                           content:[{type:"output_text", text}]}
-Msg(assistant, calls)   → one {type:"function_call", name, arguments, call_id}
-                           per call (plus a message item only if content too)
-Msg(tool)               → {type:"function_call_output", call_id, output:<str>}
-tools                   → [{type:"function", name, description,
-                            parameters, strict:false}]
-json_schema             → text.format (json_schema_style == "text_format")
-reasoning_effort        → {"reasoning": {"effort": ...}}
-quirks.mandatory_body   → merged last, always wins
+Msg(user)              → {type:"message", role:"user",
+                          content:[{type:"input_text", text}]}
+Msg(assistant, text)   → {type:"message", role:"assistant",
+                          content:[{type:"output_text", text}]}
+Msg(assistant, calls)  → one {type:"function_call", name, arguments, call_id}
+                          per call (+ a message item only if content present)
+Msg(tool)              → {type:"function_call_output", call_id, output:<str>}
+Msg(system|developer)  → non-leading only: message item, role preserved
 ```
 
-- `call_id` = the Chat Completions `tool_calls[].id`, verbatim both ways.
-- `arguments` is a JSON **string**; `output` is a **string** (`json.dumps`
-  anything else).
-- `strict:true` only when the schema is `additionalProperties:false` with all
-  keys required — langchain's usually are not, and a mismatch is a 400.
+`arguments` is a JSON **string**; `output` is a **string**.
+`quirks.mandatory_body` merges last and always wins.
 
-### 2.3 Edge cases (one fixture test each)
+### 2.5 Edge cases (one fixture test each)
 
-1. Assistant turn with **both** content and tool_calls → message item first,
-   then one `function_call` per call, order preserved.
-2. **Multi-tool-call** turn → N `function_call` items, then N matching
-   `function_call_output` items.
-3. **Empty assistant content** (`content:null`, tool_calls only) → emit no
-   message item; an empty `content:[]` is a 400 risk.
-4. Tool results arrive after the assistant turn — preserve arrival order, never
-   sort.
-5. **Refusal** → ordinary assistant content, `finish_reason:"stop"`. Nothing in
-   this pipeline reads OpenAI's `refusal` field.
-6. Consecutive same-role messages → keep separate, do not merge.
-7. **System message not first** (Msg-Clear nodes reorder) → collect all.
-8. Multimodal content parts → unused here; reject with a clear 400 rather than
-   silently dropping.
-9. **Reasoning echo (OPEN — U2).** If Codex requires encrypted reasoning items
-   echoed on later tool-loop turns, they travel in `nreq.opaque` and are
-   re-emitted by the adapter. Capture them from
-   `response.output_item.done` (`item.type=="reasoning"`) from day one, even
-   before we know they are required.
+1. Assistant turn with both content and tool_calls → message item, then calls.
+2. Multi-tool-call turn → N `function_call`, then N `function_call_output`.
+3. `content` ABSENT vs `""` vs `null` → three distinct behaviours.
+4. Tool results in arrival order; never sorted.
+5. Refusal → `finish_reason="content_filter"`.
+6. Consecutive same-role messages kept separate.
+7. Non-leading system message → stays inline (§2.2).
+8. Multimodal parts → 400, not silently dropped.
+9. `parallel_tool_calls:false` present on all four schema-bound agents.
+10. Unknown `tool_call_id` on a tool message → 400, never fabricate a `call_id`.
 
-### 2.4 SSE → NormalizedResponse
+### 2.6 SSE → NormalizedResponse (reviews #8, #9 ACCEPTED)
 
-Accumulate: `response.output_text.delta` → text buffer;
-`output_item.added` (`function_call`) → open slot keyed by `call_id`, record
-`name`; `function_call_arguments.delta` → append; `.done` → prefer the terminal
-`arguments` field over the concatenation; `output_item.done` (`reasoning`) →
-stash into `opaque`; `response.completed` → `usage` + status.
+**Index by `(output_index, item_id)`, not `call_id`.** Argument delta events
+identify their target by item, and a table keyed only on `call_id` cannot
+assemble parallel calls safely. Each slot retains its `call_id` for the
+response, validates the terminal `arguments` against the concatenation,
+rejects duplicate item ids, and emits in `output_index` order.
 
-- `finish_reason` = `tool_calls` if any slot filled; `length` on signalled
-  truncation; else `stop`.
-- `text` must be `None`, never `""` — langchain may treat an empty string as a
-  valid final answer and stop a tool loop early.
-- Stream ends without `response.completed` → **502**. Never return a partial
-  assembly as complete: a truncated `arguments` string that happens to parse
-  would silently corrupt an agent's decision.
+**Every terminal state modelled:**
 
-### 2.5 Downstream streaming is out of scope for v1
-
-The agents call `.invoke()`, never `.stream()` — `graph.stream()` streams
-*nodes*, not tokens. Buffer upstream, return one JSON body. `nreq.stream` is
-recorded but unused; revisit only if a token-streaming UI is wanted.
-
-### 2.6 Error mapping (provider-independent, in the router)
-
-| Upstream | Helper |
+| Terminal | Result |
 |---|---|
-| 401 / invalid refresh | `credentials.invalidate()`, refresh once, retry once, then `401 {"code":"reauth_required"}` |
-| 400 model rejected | `400` naming valid models (§1.9) |
-| 429 | passthrough + `Retry-After`; the pipeline's `llm_max_retries` backs off |
-| 5xx / aborted stream | `502` |
+| `response.completed` | success; `usage` |
+| `response.incomplete` | `finish_reason="length"` + `incomplete_reason` |
+| `response.failed` | error path (§2.9) |
+| top-level `error` event | error path (§2.9) |
+| stream ends with no terminal event | **502**, treated as aborted |
+
+Never return a partial assembly as complete: a truncated `arguments` string that
+happens to parse would silently corrupt an agent decision.
+
+`text` must be `None`, never `""` — langchain may treat `""` as a valid final
+answer and end a tool loop early.
+
+### 2.7 `session_id` and per-request fields (review #22 ACCEPTED)
+
+`session_id` is **dynamic**, so it cannot live in `static_headers`. The adapter
+owns per-request header construction: `session_id` (uuid4 per HTTP request),
+`Authorization` and `chatgpt-account-id` from `Credentials`, and
+`quirks.static_headers` merged in. Response `id`/`created` come from
+`response.created` where available, else generated. Bodies over
+`quirks.max_body_bytes` → 413.
+
+### 2.8 Encrypted-reasoning echo — U2 gates M1 (review #6 ACCEPTED)
+
+`opaque` on the response is impossible (§0.2(g)). **Resolve U2 before M1** and
+build from the answer:
+
+- **If echo is NOT required** (expected): capture reasoning items, discard them,
+  no state. Cheapest, and nothing further to build.
+- **If echo IS required**: helper-side conversation state keyed by a
+  **conversation-prefix digest** — `sha256` over the canonicalized inbound
+  messages *excluding the newest turn*, plus provider, resolved model and
+  credential principal. langchain resends the full history each turn, so the
+  digest is deterministic and needs no client cooperation. After responding,
+  store the reasoning items under the digest of (history + this response).
+
+  A miss degrades rather than crashes **only if** echo is optional-but-helpful.
+  If echo is strictly required, a miss is a hard failure, so state must be
+  durable (SQLite next to the helper, TTL 1 h) rather than in-memory. **Which of
+  those two we build depends entirely on U2 — do not pre-build either.**
+
+### 2.9 Error mapping (review #11 ACCEPT-WITH-CHANGES)
+
+Preserve upstream code/message/status where safe; never collapse everything to
+502.
+
+| Condition | Helper |
+|---|---|
+| HTTP 401 / invalid refresh | `invalidate()`, refresh once, retry once, then 401 `reauth_required` |
+| HTTP 403 | 403, upstream message preserved |
+| HTTP 400 — model rejected | 400 `model_not_supported`, listing `valid_models` |
+| HTTP 400 — other | 400, upstream code/message preserved verbatim |
+| HTTP 429 **or** rate-limit inside a 200 SSE stream | 429 **with `Retry-After` preserved** |
+| terminal SSE `error`/`response.failed` | mapped by upstream code, not blanket 502 |
+| deadline / `ctx.cancel` | 499 (client closed) — distinct from upstream failure |
+| stream aborted with no terminal event | 502 |
+
+Rate-limit and auth errors arriving inside an HTTP-200 stream are the subtle
+case: the status line is 200, so only the SSE terminal event reveals them.
+Mapping those to 502 would destroy `Retry-After` and defeat the pipeline's
+`llm_max_retries` backoff.
+
+### 2.10 Inbound `stream:true` (review #10 ACCEPTED)
+
+Return **501 `streaming_not_supported`** with a clear message. Do not
+record-and-ignore: silently answering a streaming request with a single JSON
+body violates Chat Completions. The pipeline calls `.invoke()`, never
+`.stream()` (`graph.stream()` streams *nodes*), so nothing regresses.
 
 ---
 
-## 3. Credential tiers
+## 3. Local security (review #21 BLOCKER — in M1, not deferred)
+
+**Binding to `127.0.0.1` is not authorization.** Any local process — including a
+web page doing `fetch("http://127.0.0.1:8899/...")` — could otherwise spend the
+user's subscription or read account status.
+
+1. **Local bearer token.** 32 bytes from `secrets.token_urlsafe`, generated on
+   first run, stored `0600` at `~/.ta-helper/token`. Required on **every**
+   endpoint except `/healthz`. Compared with `secrets.compare_digest`.
+   The pipeline passes it as the `api_key` (§5.2) — the field langchain already
+   sends as `Authorization: Bearer`, so no new plumbing.
+2. **Origin/CSRF.** Reject any request carrying `Origin` or `Referer` unless it
+   is on an explicit allowlist (empty by default). A browser cannot suppress
+   `Origin` on cross-origin requests, so this blocks the drive-by case even if
+   the token leaks into a page.
+3. **Bind address** `127.0.0.1` only; refuse `0.0.0.0` unless
+   `--i-know-what-im-doing` is passed, and log loudly.
+4. **Body cap** `quirks.max_body_bytes` (8 MiB) → 413. **Tool-schema cap** 256
+   KiB. **Concurrency cap** 8 in-flight upstream requests, 429 beyond.
+5. **`/status` requires the token** — it exposes plan type, account id suffix
+   and expiry. `/healthz` returns only `{"ok":true}`.
+6. **Never log** tokens, prompts, tool arguments or completions. Log
+   `req_id`, provider, resolved model, status, duration, token counts.
+
+---
+
+## 4. Credentials
 
 **`CodexAuthFile` (read-only).** `~/.codex/auth.json` →
 `tokens.{access_token,refresh_token,account_id}`, `auth_mode=="chatgpt"`.
-**Never written.** Codex CLI writes it too; a concurrent write races its
-refresh and can log the user out of real Codex. On expiry, do **not** refresh
-in place — `available()` returns `False` and the chain falls through to
-`OwnOAuth` (a refresh may rotate the token and invalidate Codex's copy — U3).
+**Never written** — Codex CLI writes it too and a concurrent write can log the
+user out of real Codex. On expiry `available()` → `False` and the chain falls
+through; do not refresh in place (rotation could invalidate Codex's copy — U3).
 
-**`OwnOAuth` (default path).** Parameterised by `issuer`, `client_id`,
-`redirect_uri`, `scopes` — so an Anthropic instance is a second construction,
-not a second class. PKCE S256, loopback callback, browser open, code exchange.
-Derives `chatgpt_account_id` → header, plus `chatgpt_plan_type` and
-`chatgpt_subscription_active_until` from the `id_token`. **Gates on plan**:
-no active subscription → refuse to serve with a plain message, before a
-6-minute run starts. Storage: OS keychain (`keyring`), fallback
-`~/.ta-helper/auth.json` at `0600` in a `0700` directory. Never log token
-material — only `exp` and plan.
+**`OwnOAuth`.** Async. PKCE S256, loopback callback, browser open, code
+exchange. Derives `chatgpt_account_id`, `chatgpt_plan_type`,
+`chatgpt_subscription_active_until` from the `id_token`. **Gates on plan** — no
+active subscription refuses to serve *before* a 6-minute run starts. Storage: OS
+keychain (`keyring`), fallback `~/.ta-helper/auth.json` `0600` in a `0700` dir.
+Colocated with its provider package (§1.2), because grant parameters, token
+shape and entitlement claims are provider-specific rather than parameters.
 
-**`ApiKey`.** Env or flag; paired with `OpenAIChatCompletionsAdapter` for a
-near-passthrough path. Makes the helper useful to anyone and gives a fallback
-when the Codex path breaks.
+**`ApiKey`.** Env or flag; paired with `OpenAIChatCompletionsAdapter`.
 
-**Refresh.** Driven by `access_token.exp`: refresh under 5 minutes remaining
-and on any 401. **Single-flight** — 12 agents firing concurrently would
-otherwise stampede. Rotated refresh tokens persisted atomically (temp file +
-`os.replace`).
-
-**`GET /status`** → `{provider, tier, plan, account_id_suffix, expires_in_s,
-model}`; drives the frontend chip and makes support tractable.
-
----
-
-## 4. Resumability and robustness
-
-### 4.1 The hard constraint
-
-`store:false` is mandatory, so there is no server-side conversation state and
-no `previous_response_id`. **Resumption is impossible at the LLM layer.** Every
-call is self-contained. Two other layers carry it.
-
-### 4.2 Layer 1 — call-level (relay only)
-
-- **Correlation id** per call (`uuid4`); relay holds `{req_id: Future}`.
-- **Idempotency key** = `sha256(canonical NormalizedRequest)`. Helper caches
-  `key → NormalizedResponse` (LRU 256, 10-min TTL). A retry after reconnect
-  returns the cached body instead of re-billing quota. Highest-value robustness
-  feature: it makes retry free. **Provider-agnostic** — the key is computed
-  over the normalized form.
-- **Reconnect buffering.** Helper drops mid-call → Future stays pending to
-  `deadline` (180 s/call). On reconnect the server re-sends unacked `req_id`s;
-  the idempotency cache answers instantly if the call had finished. Past the
-  deadline the call fails into the pipeline's normal retry.
-- **Ack protocol**: `request` → `ack` (≤5 s) → `result`/`error`. No ack →
-  re-dispatch; the socket may be a zombie.
-- Reconnect backoff 1 s → 30 s jittered, indefinitely.
-
-### 4.3 Layer 2 — run-level (LangGraph checkpointing)
-
-Survives a server restart or a laptop closing, and closes an existing gap.
-
-**Current state:** `checkpoint_enabled` is a **no-op in the API path**.
-Checkpointing lives inside `TradingAgentsGraph.propagate()`, but
-`apps/api/jobs/runner.py` calls `graph.graph.stream(init_state, **args)`
-directly; `stream_args.config` is only `{recursion_limit, callbacks}`. The UI
-toggle does nothing (TASKS.md §7).
-
-Fork-side, no core edits:
-1. In `graph_factory`, when `checkpoint_enabled`: hold
-   `get_checkpointer(config["data_cache_dir"], ticker)` for the run's life,
-   `graph.graph = graph.workflow.compile(checkpointer=saver)`, and inject
-   `thread_id(ticker, str(date), graph._run_signature(asset_type))` into
-   `args["config"]["configurable"]["thread_id"]`. Reusing `_run_signature()`
-   prevents resuming the wrong graph shape after an analyst/depth change
-   (upstream #1089).
-2. New `runs` columns: `checkpoint_thread_id`, `run_signature`, `resume_count`,
-   `last_completed_node`.
-3. `POST /api/runs/{id}/resume` rebuilds with the identical signature and
-   streams again; reject if a freshly computed signature differs.
-4. On process start, sweep `running` → `interrupted` (not `failed`) and offer
-   Resume.
-
-**Required for resume to be real:** byte-identical `request` JSON (already in
-`config_json`), `checkpoint_thread_id` + `run_signature`, `user_id` (routes to
-the right helper), the per-chunk `final_state` snapshot (already — a partial
-report survives even if the checkpoint is unusable), and `resume_count` capped
-at 3 so a poison run cannot loop.
-
-### 4.4 Provider-agnostic vs provider-specific
-
-**Provider-agnostic (nearly everything):** the relay protocol, correlation,
-ack/deadline/reconnect logic, the idempotency cache and its key, all
-checkpointing and resume work, the job store, SSE translation to the frontend,
-cancellation, the Chat Completions renderer, and the inbound parser.
-
-**Provider-specific (only two places):** the `UpstreamAdapter` (request
-building + response decoding) and the `CredentialSource`. Both are single
-modules behind Protocols.
-
-Consequence: **M4 and M5 need no revisiting when a provider is added.** That is
-the payoff of normalising in the middle, and the reason to do it before M5
-rather than after.
-
-### 4.5 Not recoverable
-
-A mid-call interruption loses that call's output — no server-side state, by
-construction. Cost is one call's tokens unless the idempotency cache hits.
-Acceptable; pretending otherwise would be the mistake.
+**Refresh.** Driven by `access_token.exp`: under 5 min remaining, and on 401.
+**Single-flight** — 12 agents would otherwise stampede. Rotated tokens persisted
+atomically (temp + `os.replace`).
 
 ---
 
 ## 5. Repo integration — zero core edits
 
-1. `llm_provider="openai_compatible"`,
-   `backend_url="http://127.0.0.1:8899/v1/codex"`,
-   `shallow_thinker=deep_thinker="gpt-5.6-sol"`.
-   `openai_compatible` has `require_base_url=True`, `key_optional=True`,
-   `chat_class=LocalCompatibleChatOpenAI`; no warning fires (§0a); and
-   `use_responses_api` stays off because that spec never enables it.
-2. **`api_key` injection** (a relay/session token — the helper holds the real
-   credential). `api_key` *is* in `_PASSTHROUGH_KWARGS` but
-   `_get_provider_kwargs()` never populates it:
+### 5.1 Provider selection
 
-   ```python
-   # apps/api/integrations/graph_factory.py — fork-only wrap
-   class HelperBackedGraph(TradingAgentsGraph):
-       """Forward config['api_key'] to the LLM client.
+`llm_provider="openai_compatible"`,
+`backend_url="http://127.0.0.1:8899/v1/codex"`. Verified in §0.2(m).
+`openai_compatible` has `require_base_url=True`, `key_optional=True`,
+`chat_class=LocalCompatibleChatOpenAI`, and never enables
+`use_responses_api`.
 
-       Upstream reads keys from os.environ only. Per-user keys must not go
-       through the environment: WEBAPP_CONCURRENCY>1 shares one process, so
-       one user's key would leak into another's run.
-       """
-       def _get_provider_kwargs(self):
-           kwargs = super()._get_provider_kwargs()
-           if key := self.config.get("api_key"):
-               kwargs["api_key"] = key
-           return kwargs
-   ```
-   Record in `FORK_PATCHES.md` as a wrap, not a patch.
-3. **Reasoning effort per tier.** 10 of 12 agents use `quick_thinking_llm`;
-   only Research Manager and Portfolio Manager use `deep_thinking_llm`. The
-   user's `config.toml` sets `high`. Default quick → `low`, deep → `high`: on
-   the probe, 63 of 105 output tokens were reasoning tokens, making this the
-   dominant cost lever.
-4. **Config endpoint.** `apps/api/routes/config.py` `_PROVIDERS` lacks
-   `openai_compatible` (10 of upstream's 17 — TASKS.md §7). Add it with a
-   `gpt-5.6-sol` option; the catalog only offers
-   `("Custom model ID", "custom")` there.
-5. `temperature` stripping is the helper's job (`quirks.strip_params`), not the
-   fork's — `_get_provider_kwargs()` forwards it whenever
-   `config["temperature"]` is set and `.env.example` invites setting it.
+### 5.2 Credential injection WITHOUT `RunRequest` (review #1 BLOCKER)
+
+`create_run(config=request.model_dump())` persists `config_json`, so a token on
+`RunRequest` would sit in SQLite in plaintext, and would also reach
+`run.started` SSE events (`_redact_config`) and report headers.
+
+**Design:** the local bearer token never enters `RunRequest`.
+
+1. `build_graph_for_request(request, *, user_id, credential: str | None)` — a
+   keyword argument, resolved by the caller from server-side state (env for
+   local; the relay session for hosted), never from the request body.
+2. Injected into the in-memory config *after* `_build_config()` returns, so it
+   is absent from the dict that was persisted.
+3. `HelperBackedGraph._get_provider_kwargs()` forwards it to the client.
+4. A test asserts the token appears in **no** `config_json` row, **no** event
+   payload and **no** rendered report.
+
+```python
+class HelperBackedGraph(TradingAgentsGraph):
+    """Forward config['api_key'] to the LLM client.
+
+    Upstream reads keys from os.environ only. Per-user credentials must not go
+    through the environment: WEBAPP_CONCURRENCY>1 shares one process, so one
+    user's token would leak into another's run.
+    """
+    def _get_provider_kwargs(self):
+        kwargs = super()._get_provider_kwargs()
+        if key := self.config.get("api_key"):
+            kwargs["api_key"] = key
+        return kwargs
+```
+
+### 5.3 Per-tier reasoning effort via model aliases (review #2 ACCEPTED)
+
+§0.2(l): one kwargs dict feeds both clients, so config cannot express per-tier
+effort. Instead the **model id carries it**, which config *can* express
+per-tier (`shallow_thinker` / `deep_thinker` are separate fields):
+
+```python
+model_aliases = {
+    "gpt-5.6-sol-low":  ModelAlias("gpt-5.6-sol", reasoning_effort="low"),
+    "gpt-5.6-sol-high": ModelAlias("gpt-5.6-sol", reasoning_effort="high"),
+}
+```
+
+`shallow_thinker="gpt-5.6-sol-low"`, `deep_thinker="gpt-5.6-sol-high"`. 10 of
+12 agents use the quick client; on the probe 63 of 105 output tokens were
+reasoning tokens, so this is the dominant cost lever. Aliases also give U5 a
+natural home: if `gpt-5.6-terra`/`luna` work, they become additional aliases
+with no code change.
+
+`NormalizedRequest` keeps both `model` (as received) and `resolved_model` so
+errors can name what the caller asked for.
+
+### 5.4 Config endpoint
+
+`routes/config.py` `_PROVIDERS` lacks `openai_compatible`. Add it with the alias
+model ids; the catalog only offers `("Custom model ID","custom")` there.
 
 ---
 
-## 6. Testing without burning quota
+## 6. Resume and robustness
 
-**Fixtures.** Capture one real SSE transcript per scenario **once** (text-only,
-single tool call, multi tool call, structured-output-as-tool, 400 bad model,
-429, mid-stream abort) into `tests/fixtures/codex_sse/*.txt`, tokens scrubbed.
-All translation tests replay from disk.
+### 6.1 The hard constraint
 
-**Fake upstream.** A `pytest` fixture serving those fixtures over a local
-`http.server`, exercising the helper end-to-end — headers, refresh, assembly,
-error mapping — with no real calls.
+`store:false` is mandatory → no server-side conversation state, no
+`previous_response_id`. **Resumption is impossible at the LLM layer.**
 
-**Unit tests (no network):**
-- inbound parse → `NormalizedRequest` for every §2.3 edge case
-- `CodexResponsesAdapter` request building, incl. `mandatory_body` overriding
-  caller values and `strip_params` removing `temperature`
-- SSE → `NormalizedResponse` per fixture; truncated stream → 502
-- renderer: `NormalizedResponse` → Chat Completions, `content:null` not `""`
-- credential tiers: expiry maths, single-flight refresh, keychain/file
-  fallback, and **assert Codex's `auth.json` is never opened for writing**
-- registry: unknown provider path → 404; unknown model → 400 listing valid ones
-- idempotency: identical request → one upstream call
-- relay: correlation, deadline, reconnect replay, cancel resolves futures
+### 6.2 Idempotency (reviews #13, #14)
+
+**#13 ACCEPTED.** A provider-agnostic content hash is an invalid key. The
+logical invocation identity is the **relay `req_id`** (stable across retries of
+the same call), bound to a fingerprint so a reused id cannot return another
+deployment's answer:
+
+```
+key         = req_id
+fingerprint = sha256(provider, upstream_url, adapter_version,
+                     resolved_model, credential_principal, request_digest)
+```
+
+A `req_id` hit whose fingerprint differs is a bug → 409, never a cache hit.
+
+**#14 ACCEPT-WITH-CHANGES.** Added: per-key **single-flight** so concurrent
+duplicates collapse to one upstream call. **Rejected for v1:** durable result
+storage — over-engineered at this scale. The guarantee is therefore narrowed and
+stated honestly:
+
+> Retry is free **only** for a call that completed and whose result is still
+> held by the same helper process (LRU 256, 10-min TTL). A helper restart, or a
+> disconnect between upstream completion and caching, costs one re-billed call.
+
+### 6.3 Run-level resume (reviews #15, #16, #17, #18, #19)
+
+Currently `checkpoint_enabled` is a **no-op in the API path**: checkpointing
+lives in `propagate()`, which `runner.py` bypasses. Fixing it properly needs
+five things, not one.
+
+**#15 — namespace per run, not per ticker+date.** `thread_id(ticker,date,sig)`
+omits `user_id` (§0.2(h)). Persist a run-specific namespace
+`f"{user_id}:{run_id}"` in a new `checkpoint_thread_id` column and reuse it only
+for resumes **of that run**. Never re-derive it from ticker+date.
+
+**#16 — resume is a distinct execution path.** `stream(None, config)`, not
+`stream(init_state, config)` — resending the initial state restarts the graph.
+The resume path must also:
+- seed `ChunkTranslator` from persisted state (completed analysts, debate
+  lengths, `_processed_message_ids`) or sequence numbers restart and collide
+  with stored events;
+- start `seq` from `store.latest_seq(run_id)+1`;
+- suppress re-emission of already-persisted content.
+
+**#17 — persist the effective config, not the request.** `config_json` is
+`RunRequest.model_dump()`; `_build_config()` re-applies a live
+`DEFAULT_CONFIG` derived from the environment, so a restart can silently change
+`temperature`, `llm_max_retries` or paths. Add `effective_config_json` — the
+post-`_build_config` dict **with credentials removed** — plus `code_version`
+(git sha). Validate both on resume; mismatch → refuse, explain, offer a fresh
+run.
+
+**#18 — `interrupted` end-to-end.** Add to `RunStatus`, the store, terminal-state
+handling and the frontend. Sweep **both** `queued` and `running` on startup
+(queued jobs are lost on restart too). Resume must be an **atomic**
+`interrupted → running` transition (`UPDATE ... WHERE status='interrupted'`,
+check `rowcount`) so a double-click cannot start two resumes.
+
+**#19 ACCEPT-WITH-CHANGES.** Own the checkpointer context in the runner's
+`try/finally` so error, cancel and early-return paths cannot leak the SQLite
+handle. Clear checkpoints on success and cancel; retain only resumable
+interruptions. **Rejected:** changing `stream_mode` to capture node names —
+§0.2(i) shows the API path uses `"values"`, and adding `"updates"` changes what
+the translator receives, a real regression risk for cosmetic data. **Drop the
+`last_completed_node` column**; resume is driven by the checkpoint itself.
+
+**Cap `resume_count` at 3** so a poison run cannot loop.
+
+### 6.4 Provider-agnostic vs provider-specific
+
+**Agnostic:** relay protocol, correlation, ack/deadline/reconnect, idempotency
+(the fingerprint *names* the provider but the mechanism is shared), all
+checkpoint/resume work, job store, SSE-to-frontend, cancellation, renderer,
+inbound parser, local security.
+
+**Provider-specific:** `UpstreamAdapter` and `CredentialSource` only — one
+provider package each.
+
+So M4 and M5 need no revisiting when a provider is added.
+
+### 6.5 Not recoverable
+
+A mid-call interruption loses that call's output. Cost: one call's tokens unless
+the idempotency cache hits.
+
+---
+
+## 7. Testing without burning quota
+
+**Fixtures.** Capture one real SSE transcript per scenario **once**, tokens
+scrubbed, into `tests/helper/fixtures/`: text-only; single tool call; multi
+tool call; **all four** schema-bound agents (`TraderProposal`, `ResearchPlan`,
+`PortfolioDecision`, sentiment); 400 bad model; 429; `response.incomplete`;
+`response.failed`; mid-stream abort; rate-limit-inside-200-stream.
+
+**Fake upstream** serving those fixtures over a local `http.server`.
+
+**Unit tests (no network):** inbound parse per §2.5 edge case; `tool_choice`
+matrix (§2.3); `strict`/`parallel_tool_calls` preserved exactly as received
+(§0.2(e,f)); `mandatory_body` overrides caller values; `strip_params` vs
+`reject_params`; SSE assembly indexed by `(output_index,item_id)` incl. parallel
+calls and duplicate ids; every terminal state; truncated stream → 502;
+`Retry-After` survives a rate limit inside a 200 stream; renderer emits
+`content:null` not `""`; credential tiers incl. **asserting Codex's
+`auth.json` is never opened for writing**; single-flight; fingerprint mismatch →
+409; security — missing/wrong token → 401, cross-origin `Origin` → 403,
+oversized body → 413, `/healthz` open.
 
 **Contract test with real langchain (no network).** Point
-`LocalCompatibleChatOpenAI` at the fake upstream and assert
-`bind_structured(llm, PortfolioDecision, "PM").invoke(...)` returns a populated
-model. This proves the §0b tool-based structured-output path end to end and is
-worth more than any other single test.
+`LocalCompatibleChatOpenAI` at the fake upstream and assert `bind_structured`
+round-trips **all four** schemas. Highest-value single test — it proves the
+§0.2(b) tool-based path end to end.
 
-**Seam test.** A 30-line `EchoAdapter` + `StaticCredentials` registered under
-`/v1/echo` proves a new provider needs one module and one registry entry, and
-guards the seam against erosion. Cheap, and it is the executable version of the
-architectural claim.
+**Credential-leak test (review #1).** Create a run with a credential, then
+assert it appears in no `config_json`, no event payload, no report.
 
-**Needs live calls (3 only, `@pytest.mark.live`, skipped by default, ~200
-tokens each):** auth smoke; one custom function tool honoured; refresh grant
-returns a usable token.
+**Seam test.** A ~30-line `providers/echo/` package under `/v1/echo` proving the
+§1.2 guarantee and guarding it against erosion.
 
----
+**Rejected:** contract tests for *every* item in review #22 — gold-plating.
+Tests exist for the ones that can silently corrupt output (headers, timeouts,
+body caps, error envelope), not for cosmetics.
 
-## 7. Open unknowns and the cheapest experiment for each
-
-| # | Unknown | Experiment |
-|---|---|---|
-| U1 | Is a redirect URI other than `http://localhost:1455/auth/callback` allowed? Blocks `OwnOAuth`, and 1455 collides with a live `codex login`. | Build the authorize URL with port 1456 and open it — an unregistered URI errors on OpenAI's page before any token is issued. Free. **Do first.** |
-| U2 | Must encrypted reasoning items be echoed back on later tool-loop turns? | One two-turn run (tool call → result → second call), with and without the reasoning item. ~400 tokens. Decides §2.3.9. |
-| U3 | Does the refresh grant rotate the refresh token, invalidating Codex CLI's copy? | Refresh with a copy, compare the returned `refresh_token`. If rotated, `CodexAuthFile` stays read-only-until-expiry then hands off. |
-| U4 | Rate limits for a 12-agent run on Pro. | One depth-1 single-analyst run; count 429s. |
-| U5 | Do `gpt-5.6-terra` / `gpt-5.6-luna` work? Would give a cheap quick-thinker and cut cost sharply. | Repeat the 400-probe per name; ~0 tokens on rejection. |
+**Needs live calls** (`@pytest.mark.live`, skipped by default, ~200 tokens
+each): auth smoke; one custom function tool honoured; refresh grant returns a
+usable token.
 
 ---
 
-## 8. File layout
+## 8. Open unknowns
+
+| # | Unknown | Experiment | Gates |
+|---|---|---|---|
+| U1 | Redirect URI other than `http://localhost:1455/auth/callback` allowed? 1455 collides with a live `codex login`. | Build the authorize URL with port 1456 and open it — an unregistered URI errors before any token is issued. Free. | M3 |
+| U2 | Must encrypted reasoning items be echoed on later tool-loop turns? | Two-turn run (tool call → result → second call), with and without the reasoning item. ~400 tokens. | **M1** (§2.8) |
+| U3 | Does the refresh grant rotate the refresh token, invalidating Codex CLI's copy? | Refresh with a copy; compare the returned `refresh_token`. | M3 |
+| U4 | Rate limits for a 12-agent run on Pro. | One depth-1 single-analyst run; count 429s. | M2 |
+| U5 | Do `gpt-5.6-terra` / `luna` work? Cheap quick-thinker. | Repeat the 400-probe per name; ~0 tokens on rejection. | M2 (aliases, §5.3) |
+
+---
+
+## 9. File layout
 
 ```
 apps/helper/
-  pyproject.toml                   # standalone installable: `ta-helper`
+  pyproject.toml
   ta_helper/
-    __main__.py                    # serve | login | status | logout | providers
-    server.py                      # /v1/{provider}/chat/completions, /status,
-                                   #   /v1/providers, /healthz
-    registry.py                    # PROVIDERS dict, Provider, ProviderQuirks
-    normalize.py                   # NormalizedRequest/Response dataclasses
-    inbound.py                     # Chat Completions -> NormalizedRequest
-    render.py                      # NormalizedResponse -> Chat Completions
-    adapters/
-      base.py                      # UpstreamAdapter Protocol
-      codex_responses.py           # day one
-      openai_chat.py               # day one (API-key passthrough)
-      # anthropic_messages.py      # later: one module, one registry entry
-    credentials/
-      base.py                      # CredentialSource Protocol, chain()
-      codex_file.py                # read-only
-      own_oauth.py                 # parameterised PKCE + refresh
-      api_key.py
-      store.py                     # keychain + 0600 file fallback
-    idempotency.py
-    relay_client.py                # M5 only
+    __main__.py            # serve | login | status | logout | providers | token
+    server.py              # routing, local auth, origin/body/concurrency caps
+    security.py            # token gen/compare, origin policy
+    normalize.py           # NormalizedRequest/Response
+    inbound.py             # Chat Completions -> NormalizedRequest
+    render.py              # NormalizedResponse -> Chat Completions
+    registry.py            # PROVIDERS, Provider, ProviderQuirks, ModelAlias
+    context.py             # RequestCtx (deadline, cancel)
+    idempotency.py         # req_id + fingerprint, single-flight
+    conversation_state.py  # only if U2 says echo is required
+    providers/
+      codex/{adapter.py, auth.py, quirks.py}
+      openai/{adapter.py, auth.py, quirks.py}
+      echo/                # seam test
+    relay_client.py        # M5
 tests/helper/
-docker-compose.local.yml           # api+web -> host.docker.internal:8899
+docker-compose.local.yml
 ```
 
-**Language: Python.** Reuses this repo's toolchain, test suite and idioms, and
-the translation logic resembles code already here. A TS/Bun helper would ship a
-smaller binary but adds a second toolchain for one component — worth it only if
-the helper must be distributed as a signed desktop artifact to non-Python
-users, which is a packaging decision, not an implementation one.
+**Language: Python** — reuses this repo's toolchain, tests and idioms.
+Packaging as a signed desktop artifact is a separate decision.
 
 ---
 
-## 9. Milestones
+## 10. Milestones — re-derived
 
-| # | Deliverable | Est. | Δ |
+| # | Deliverable | Was | Now | Δ |
+|---|---|---|---|---|
+| M0 | U1 + U5 probes, **U2 resolution** (gates M1), fixture capture incl. 4 schemas + error/terminal cases | 0.5 | **1.0** | +0.5 |
+| M1 | Normalize/inbound/render with all semantic params, registry + quirks + aliases, `CodexResponsesAdapter` (full `tool_choice`, item-indexed SSE, all terminal states), `OpenAIChatCompletionsAdapter`, `CodexAuthFile` + `ApiKey`, **local security (§3)**, error mapping (§2.9), `RequestCtx`, fake-upstream + seam tests | 1.5 | **3.0** | +1.5 |
+| M2 | Wire local pipeline: `HelperBackedGraph`, **credential injection outside `RunRequest`** + leak test, model aliases, `docker-compose.local.yml`, one real end-to-end analysis, U4 | 0.5 | **1.0** | +0.5 |
+| M3 | `OwnOAuth` (async, colocated), keychain store, single-flight refresh | 1.0 | **1.25** | +0.25 |
+| M4 | Resume redesign: per-run namespace, `stream(None,config)` path, translator/seq seeding, `effective_config_json` + `code_version`, `interrupted` end-to-end, atomic transition, `try/finally` teardown + retention | 1.5 | **3.0** | +1.5 |
+| M5 | Relay: WS endpoint, registry, loopback shim, cancel → `ctx.cancel`, idempotency fingerprint + single-flight, backpressure | 2.5 | **3.0** | +0.5 |
+| | **Total** | 7.5 | **12.25** | **+4.75** |
+
+**M0–M2: 2.5 d → 5.0 d.** What moved, and why:
+
+- **+1.5 d in M1** is mostly the security work (§3), which was entirely absent
+  and is a genuine blocker, plus the SSE state machine growing from "happy path
+  + abort" to every terminal state, and full `tool_choice`/parameter fidelity.
+- **+0.5 d in M0** is U2. It gates M1 because §2.8's design branches on the
+  answer, and building the wrong branch is worse than waiting.
+- **+0.5 d in M2** is credential injection done safely — a keyword argument
+  path plus a leak test, rather than a field on `RunRequest`.
+- **+1.5 d in M4** is the honest cost of resume being wrong three independent
+  ways; it was previously scoped as if only the checkpointer wiring were
+  missing.
+- **M5 +0.5 d** for the idempotency fingerprint and single-flight.
+
+Recommended stop-and-review after M2 (now day 5).
+
+---
+
+## Appendix A — Review round 1 dispositions
+
+| # | Sev | Disposition | Reason |
 |---|---|---|---|
-| M0 | U1 + U5 probes; fixture capture harness | 0.5 d | — |
-| M1 | Normalize/inbound/render, registry + quirks, `CodexResponsesAdapter`, `OpenAIChatCompletionsAdapter`, `CodexAuthFile` + `ApiKey`, fake-upstream tests, `/status`, seam test | **1.5 d** | +0.5 d |
-| M2 | Wire the local pipeline: subclass, `openai_compatible`, `docker-compose.local.yml`, one real end-to-end analysis on the Pro subscription | 0.5 d | — |
-| M3 | `OwnOAuth` PKCE, keychain store, single-flight refresh | 1 d | — |
-| M4 | Run-level checkpoint resume (§4.3) — closes the TASKS.md §7 no-op | 1.5 d | — |
-| M5 | Hosted relay: WS endpoint, registry, loopback shim, cancellation, idempotency | 2.5 d | — |
+| 1 | BLOCKER | **ACCEPT** | Confirmed: `create_run(config=request.model_dump())` → plaintext token in `config_json`. §5.2 |
+| 2 | SHOULD | **ACCEPT** | Confirmed: one kwargs dict feeds both clients. Model aliases adopted. §5.3 |
+| 3 | SHOULD | **ACCEPT** | Confirmed: four schema-bound agents incl. `ResearchPlan`. §0.2(c), §7 |
+| 4 | BLOCKER | **ACCEPT**, evidence **VINDICATED** | Recommendation adopted (§1.4). Codex's `parallel_tool_calls=false` claim is **true** — verified empirically; the counter-claim was wrong. §0.2(e) |
+| 5 | BLOCKER | **ACCEPT** | `tool_choice` was unmapped; `strict` was being invented. §2.3, §0.2(f) |
+| 6 | BLOCKER | **ACCEPT** | `opaque` removed. Verified no langchain passthrough exists, so only helper-side state is viable. U2 gates M1. §0.2(g), §2.8 |
+| 7 | SHOULD | **ACCEPT-WITH-CHANGES** | Leading-run hoist only; `name` and ABSENT added. Rejected "never hoist" — Codex needs `instructions` populated. §2.2 |
+| 8 | SHOULD | **ACCEPT** | Index by `(output_index,item_id)`. §2.6 |
+| 9 | SHOULD | **ACCEPT-WITH-CHANGES** | All terminal states modelled; refusal → `content_filter`, no separate channel (nothing reads it). §1.5, §2.6 |
+| 10 | SHOULD | **ACCEPT** | 501 on inbound `stream:true`. §2.10 |
+| 11 | SHOULD | **ACCEPT-WITH-CHANGES** | Full mapping incl. rate-limit-inside-200-stream; `Retry-After` preserved. §2.9 |
+| 12 | SHOULD | **ACCEPT** | `RequestCtx` with deadline + cancel; cooperative graph cancellation documented. §1.7 |
+| 13 | BLOCKER | **ACCEPT** | `req_id` + fingerprint; mismatch → 409. §6.2 |
+| 14 | BLOCKER | **ACCEPT-WITH-CHANGES** | Single-flight added; guarantee narrowed. **Rejected** durable storage for v1 as over-engineered. §6.2 |
+| 15 | BLOCKER | **ACCEPT** | Confirmed `thread_id` lacks `user_id`. Per-run namespace. §6.3 |
+| 16 | BLOCKER | **ACCEPT** | `stream(None,config)` + translator/seq seeding. §6.3 |
+| 17 | BLOCKER | **ACCEPT** | Confirmed `_build_config` re-applies env defaults. `effective_config_json` + `code_version`. §6.3 |
+| 18 | SHOULD | **ACCEPT** | Confirmed `interrupted` absent from `RunStatus`. Atomic transition added. §6.3 |
+| 19 | SHOULD | **ACCEPT-WITH-CHANGES** | `try/finally` teardown + retention accepted. **Rejected** the `stream_mode` change; **dropped** `last_completed_node` instead. §6.3 |
+| 20 | SHOULD | **ACCEPT** | Guarantee restated as provider *package* + registry entry; credentials async, auth colocated. §1.2 |
+| 21 | BLOCKER | **ACCEPT** | Loopback ≠ authorization. Token + origin + caps, in M1. §3 |
+| 22 | SHOULD | **ACCEPT-WITH-CHANGES** | `session_id`, timeouts, response ids, body caps made explicit. **Rejected** contract tests for every item as gold-plating. §2.7, §7 |
 
-**Estimate change, stated explicitly:** M1 grows **1 d → 1.5 d** (+0.5 d) for
-the normalization layer, registry, quirks record and seam test. Every other
-milestone is unchanged: M4 and M5 are provider-agnostic (§4.4), so the extra
-structure costs nothing there and saves a rewrite when the second provider
-lands. **M0–M2 is now ~2.5 days** (was ~2) to reach real analyses running on
-the ChatGPT subscription locally.
-
-Recommended stop-and-review after M2.
+**Net:** 15 ACCEPT, 7 ACCEPT-WITH-CHANGES, 0 outright REJECT — but four
+sub-recommendations rejected inside those: durable idempotency storage (#14),
+the `stream_mode` change and `last_completed_node` (#19), "never hoist
+instructions" (#7), and exhaustive contract tests (#22). One review claim was
+**vindicated against the counter-claim** (#4).
