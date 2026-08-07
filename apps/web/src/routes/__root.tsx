@@ -1,10 +1,4 @@
-import {
-  ClerkProvider,
-  Show,
-  SignInButton,
-  SignUpButton,
-  UserButton,
-} from '@clerk/react'
+import { ClerkProvider, Show, SignIn } from '@clerk/react'
 import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router'
 import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
 import { TanStackDevtools } from '@tanstack/react-devtools'
@@ -35,7 +29,7 @@ export const Route = createRootRoute({
     meta: [
       { charSet: 'utf-8' },
       { name: 'viewport', content: 'width=device-width, initial-scale=1' },
-      { title: 'Drishti — TradingAgents' },
+      { title: 'Drishiti — TradingAgents' },
       { name: 'color-scheme', content: 'dark' },
     ],
     links: [{ rel: 'stylesheet', href: appCss }],
@@ -45,23 +39,38 @@ export const Route = createRootRoute({
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
+    /* suppressHydrationWarning on BOTH <html> and <body> — browser
+       extensions (Grammarly, LastPass, dark-mode tools) inject
+       `data-gr-*` / `data-lastpass-*` attributes on <body> between SSR
+       and hydration. Without this, React logs a hydration mismatch
+       warning every page load. The warning is purely cosmetic — the
+       actual app hydration is fine. */
     <html lang="en" className="dark" suppressHydrationWarning>
       <head>
         <HeadContent />
       </head>
-      <body className="font-sans antialiased">
-        <ClerkProvider publishableKey={PUBLISHABLE_KEY ?? ''}>
-          {/* Show controls visibility based on auth state — Clerk Core 3
-              replaced <SignedIn>/<SignedOut> with <Show when="..."> in v6. */}
+      <body className="font-sans antialiased" suppressHydrationWarning>
+        <ClerkProvider
+          publishableKey={PUBLISHABLE_KEY ?? ''}
+          /* Without these, Clerk redirects post-sign-in to its hosted
+             Account Portal at <app>.accounts.dev instead of back to
+             your localhost. fallback variants only redirect when no
+             explicit ?redirect_url is in the query, which is what we
+             want — links into the app from elsewhere still work. */
+          signInFallbackRedirectUrl="/"
+          signUpFallbackRedirectUrl="/"
+          afterSignOutUrl="/"
+        >
+          {/* Clerk Core 3 replaced <SignedIn>/<SignedOut> with
+              <Show when="..."> in v6. */}
           <Show when="signed-out">
-            {/* Block the entire app behind sign-in. The FastAPI backend
-                rejects unauthenticated requests when CLERK_JWKS_URL is set,
-                so rendering authenticated UI before sign-in would just
-                produce 401-ridden error states. */}
             <SignInGate />
           </Show>
           <Show when="signed-in">
-            <UserBadge />
+            {/* The UserButton (sign-out / account menu) lives in the
+                Topbar now — it owns the layout slot, no fixed-position
+                overlay fighting with page buttons. See
+                apps/web/src/components/shared/Topbar.tsx. */}
             {children}
           </Show>
         </ClerkProvider>
@@ -78,71 +87,101 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 }
 
 function SignInGate() {
-  /* Sign-in/up buttons open Clerk's hosted modal by default — no extra
-     route plumbing or path config needed, which is friendly for an SPA. */
+  /* Embedded sign-in: full Clerk form rendered inline rather than the
+     modal pop-up flow. The form handles email + password + any social
+     providers configured in the Clerk dashboard. routing="hash" tracks
+     sign-in state via the URL hash (#/factor-one, #/sso-callback, etc.)
+     without needing dedicated app routes. */
   return (
-    <div
+    <main
       style={{
-        display: 'grid',
-        placeItems: 'center',
         minHeight: '100vh',
-        background: 'var(--bg, #0a0a0a)',
-        gap: 16,
+        background: 'var(--bg-0)',
+        display: 'grid',
+        gridTemplateColumns: '1fr',
+        placeItems: 'center',
+        padding: '24px',
       }}
     >
-      <h1 style={{ color: 'var(--text-1, #fff)', fontSize: 28, fontWeight: 600 }}>
-        Drishti
-      </h1>
-      <div style={{ display: 'flex', gap: 12 }}>
-        <SignInButton mode="modal">
-          <button
-            type="button"
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: 24,
+          maxWidth: 480,
+          width: '100%',
+        }}
+      >
+        <header style={{ textAlign: 'center' }}>
+          <h1
             style={{
-              padding: '8px 16px',
-              borderRadius: 6,
-              background: 'var(--accent, #4f46e5)',
-              color: '#fff',
-              border: 'none',
-              cursor: 'pointer',
+              fontSize: 36,
+              fontWeight: 600,
+              color: 'var(--text-1)',
+              letterSpacing: '-0.02em',
+              margin: 0,
             }}
           >
-            Sign in
-          </button>
-        </SignInButton>
-        <SignUpButton mode="modal">
-          <button
-            type="button"
+            Drishiti
+          </h1>
+          <p
             style={{
-              padding: '8px 16px',
-              borderRadius: 6,
-              background: 'transparent',
-              color: 'var(--text-1, #fff)',
-              border: '1px solid var(--border, #333)',
-              cursor: 'pointer',
+              color: 'var(--text-3)',
+              marginTop: 8,
+              fontSize: 14,
             }}
           >
-            Sign up
-          </button>
-        </SignUpButton>
+            Multi-agent trading analysis
+          </p>
+        </header>
+        {/* The Clerk widget styles itself with appearance tokens. We
+            tune a small set so it stops feeling like a third-party
+            iframe — dark surface, our accent color, and tight padding
+            so the embedded form sits cleanly in the dark UI. */}
+        <SignIn
+          routing="hash"
+          /* forceRedirectUrl ensures we always come back to / after a
+             successful sign-in, even on multi-step flows that might
+             otherwise hand off to the hosted portal. */
+          forceRedirectUrl="/"
+          appearance={{
+            variables: {
+              colorPrimary: '#4f7cff',
+              colorBackground: '#101218',
+              colorText: '#e7e9ef',
+              colorInputBackground: '#161922',
+              colorInputText: '#e7e9ef',
+              colorTextSecondary: '#b4b9c6',
+              colorTextOnPrimaryBackground: '#ffffff',
+              colorNeutral: '#7d8499',
+              borderRadius: '8px',
+              fontFamily: 'inherit',
+            },
+            elements: {
+              card: {
+                background: 'var(--bg-1)',
+                border: '1px solid var(--bg-3)',
+                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.32)',
+              },
+              headerTitle: { color: 'var(--text-1)' },
+              headerSubtitle: { color: 'var(--text-3)' },
+              socialButtonsBlockButton: {
+                background: 'var(--bg-2)',
+                border: '1px solid var(--bg-3)',
+                color: 'var(--text-1)',
+              },
+              formFieldInput: {
+                background: 'var(--bg-2)',
+                border: '1px solid var(--bg-3)',
+                color: 'var(--text-1)',
+              },
+              footerActionLink: { color: 'var(--accent-hi)' },
+            },
+          }}
+        />
       </div>
-    </div>
+    </main>
   )
 }
 
-function UserBadge() {
-  /* Tiny floating badge so the sign-out / account menu is reachable
-     without restructuring the existing layout. Positioned to not collide
-     with the TanStack devtools panel. */
-  return (
-    <div
-      style={{
-        position: 'fixed',
-        top: 12,
-        right: 12,
-        zIndex: 50,
-      }}
-    >
-      <UserButton />
-    </div>
-  )
-}

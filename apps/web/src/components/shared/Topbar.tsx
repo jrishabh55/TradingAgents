@@ -1,3 +1,4 @@
+import { UserButton } from '@clerk/react'
 import { Link } from '@tanstack/react-router'
 
 export interface TopbarProps {
@@ -24,8 +25,8 @@ export function Topbar({
   return (
     <div className="es-topbar">
       <Link to="/" className="es-logo no-underline">
-        <div className="es-logo-mark">E</div>
-        EasyStock
+        <div className="es-logo-mark">D</div>
+        Drishiti
       </Link>
       {ticker && (
         <div className="es-crumbs">
@@ -73,6 +74,10 @@ export function Topbar({
       <Link to="/" className="es-btn primary sm no-underline">
         New analysis
       </Link>
+      {/* Sign-out / account menu lives at the end of the topbar so it
+          owns its own layout slot — no fixed-position overlay fighting
+          with page buttons. */}
+      <UserButton />
     </div>
   )
 }

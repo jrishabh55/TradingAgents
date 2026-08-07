@@ -708,6 +708,11 @@ body {
   border-radius: 8px;
   padding: 2px;
   gap: 2px;
+  /* Wrap when there are too many options to fit one row (e.g. 8+
+     LLM providers in the Model stack picker). Without this, items
+     overflow horizontally and get clipped because their `min-width`
+     defaults to content size and won't shrink under inline `flex: 1`. */
+  flex-wrap: wrap;
 }
 .seg-btn {
   padding: 5px 10px;
