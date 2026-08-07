@@ -6,6 +6,7 @@ Routes:
   GET  /api/runs/{run_id}              detail
   POST /api/runs/{run_id}/cancel       request cooperative cancel
   GET  /api/runs/{run_id}/report.md    download as markdown
+  GET  /api/runs/{run_id}/levels       computed stop / target / position size
 """
 from __future__ import annotations
 
@@ -14,14 +15,20 @@ import os
 from datetime import datetime
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import StreamingResponse
 
 from apps.api.auth import current_user_id
 from apps.api.jobs.markdown import render_markdown_report
 from apps.api.jobs.runner import get_runner
 from apps.api.jobs.store import get_store
-from apps.api.schemas import RunDetail, RunRequest, RunSummary, request_hash
+from apps.api.schemas import (
+    LevelsResponse,
+    RunDetail,
+    RunRequest,
+    RunSummary,
+    request_hash,
+)
 
 
 router = APIRouter()
@@ -178,6 +185,66 @@ def download_report(
         media_type="text/markdown; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.get("/runs/{run_id}/levels", response_model=LevelsResponse)
+def get_run_levels(
+    run_id: str,
+    capital: float = Query(
+        ...,
+        gt=0,
+        description=(
+            "Account capital, expressed in the INSTRUMENT'S quote currency "
+            "(see `currency` in the response). No FX conversion is performed."
+        ),
+    ),
+    risk_pct: float = Query(
+        1.0, gt=0, le=100, description="Percent of capital risked on this trade (1-2 typical)."
+    ),
+    r_multiple: float = Query(
+        2.0, ge=1, le=10, description="Primary target as a multiple of the stop distance."
+    ),
+    user_id: str = Depends(current_user_id),
+) -> LevelsResponse:
+    """Structure-based stop, risk-multiple target, and fixed-fractional size.
+
+    Computed on demand rather than frozen at run time: it's deterministic
+    arithmetic over cached OHLCV, so changing ``capital`` or ``risk_pct``
+    re-sizes instantly without re-running the (expensive) agent pipeline.
+    Levels are derived as of the run's ``analysis_date``, keeping them
+    consistent with the report.
+
+    Long side only. A short-implying rating comes back ``viable=false``.
+    """
+    # Local import: pulls pandas/stockstats, and keeps module import cheap for
+    # tests that never touch levels.
+    from apps.api.integrations.levels import LevelsUnavailable, compute_levels
+
+    detail = get_store().get_run(run_id)
+    if detail is None or not _user_owns(detail, user_id):
+        raise HTTPException(status_code=404, detail="run not found")
+    if detail.status != "completed":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"run is {detail.status}; levels need a completed run",
+        )
+
+    try:
+        return compute_levels(
+            run_id=run_id,
+            ticker=detail.ticker,
+            analysis_date=detail.analysis_date,
+            capital=capital,
+            risk_pct=risk_pct,
+            r_multiple=r_multiple,
+            rating=detail.rating,
+            trader_plan=detail.trader_investment_plan,
+        )
+    except LevelsUnavailable as exc:
+        # The run itself is fine — the market data can't support the maths.
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from exc
 
 
 def _render_markdown(detail: RunDetail) -> str:

@@ -1,5 +1,7 @@
 import type {
   ConfigResponse,
+  LevelsParams,
+  LevelsResponse,
   RunDetail,
   RunRequest,
   RunSummary,
@@ -82,6 +84,14 @@ export const api = {
   cancelRun: (id: string) =>
     jsonFetch<{ ok: boolean }>(`/runs/${id}/cancel`, { method: 'POST' }),
   reportUrl: (id: string) => `${API_BASE}/runs/${id}/report.md`,
+  /* Deterministic arithmetic server-side, so it's cheap to re-request as the
+     user changes capital or risk — no pipeline re-run. */
+  runLevels: (id: string, params: LevelsParams) => {
+    const q = new URLSearchParams({ capital: String(params.capital) })
+    if (params.risk_pct != null) q.set('risk_pct', String(params.risk_pct))
+    if (params.r_multiple != null) q.set('r_multiple', String(params.r_multiple))
+    return jsonFetch<LevelsResponse>(`/runs/${id}/levels?${q}`)
+  },
   /* SSE: native EventSource can't send headers, so the JWT is appended as
      a query param. The backend reads ?token= when Authorization is absent
      (apps/api/auth.py::_extract_bearer). The token is fresh per call. */

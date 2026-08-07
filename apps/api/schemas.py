@@ -169,3 +169,85 @@ class ConfigResponse(BaseModel):
     models_by_provider: Dict[str, List[ModelOption]]
     output_languages: List[Dict[str, str]]
     default_ticker: str = "SPY"
+
+
+# ---------------------------------------------------------------------------
+# Risk levels (GET /api/runs/{id}/levels)
+# ---------------------------------------------------------------------------
+
+
+class LevelValue(BaseModel):
+    """A price level plus the rule that produced it.
+
+    ``basis`` exists so no number in this response is unexplained — the UI can
+    show "how was this derived" next to every figure. These are risk-management
+    arithmetic, not price predictions.
+    """
+
+    price: float
+    basis: str
+
+
+class ComputedLevels(BaseModel):
+    """Deterministic levels derived from OHLCV — no LLM involved."""
+
+    entry: LevelValue
+    stop: LevelValue
+    target: LevelValue
+    # Secondary R-multiple target, shown alongside the primary one.
+    target_alt: LevelValue
+    risk_per_share: float
+    risk_pct_of_entry: float
+    reward_risk_ratio: float
+    # Nearest resistance above entry, when one was found in the lookback.
+    resistance: Optional[LevelValue] = None
+
+
+class PositionSize(BaseModel):
+    """Fixed-fractional sizing: the stop distance decides the size."""
+
+    shares: int
+    cash_risk: float
+    position_value: float
+    capital: float
+    risk_pct: float
+    basis: str
+
+
+class ModelSuggested(BaseModel):
+    """What the Trader agent asserted, for comparison. Not used in the math."""
+
+    stop_loss: Optional[float] = None
+    entry_price: Optional[float] = None
+    position_sizing: Optional[str] = None
+
+
+class LevelsResponse(BaseModel):
+    """GET /api/runs/{id}/levels.
+
+    Structure-based stop + risk-multiple target + fixed-fractional sizing,
+    computed from the run's OHLCV as of its ``analysis_date``. Long side only
+    in v1; a short-implying rating returns ``viable=false`` rather than
+    long-shaped numbers.
+    """
+
+    run_id: str
+    ticker: str
+    analysis_date: str
+    rating: Optional[str] = None
+    # Quote currency of the instrument. ``capital`` is assumed to be in this
+    # same currency — no FX conversion is performed. None when unresolvable.
+    currency: Optional[str] = None
+    viable: bool
+    # Every reason the rules say don't take this trade (empty when viable).
+    viability_notes: List[str] = Field(default_factory=list)
+    levels: Optional[ComputedLevels] = None
+    size: Optional[PositionSize] = None
+    model_suggested: Optional[ModelSuggested] = None
+    # Human-readable comparison of the agent's stop vs the computed one.
+    divergence: Optional[str] = None
+    disclaimer: str = (
+        "Risk-management arithmetic derived from historical OHLCV, not a price "
+        "prediction or investment advice. A level holding in the past does not "
+        "mean it will hold again."
+    )

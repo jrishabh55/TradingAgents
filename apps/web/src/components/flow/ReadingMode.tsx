@@ -3,11 +3,15 @@ import { TEAMS, totalAgents } from '#/lib/teams'
 import { Topbar } from '#/components/shared/Topbar'
 import { StatusBar } from '#/components/shared/StatusBar'
 import { ReportBody } from '#/components/shared/ReportBody'
+import { LevelsPanel } from '#/components/flow/LevelsPanel'
 import { api } from '#/lib/api'
 import type { RunDetail } from '#/lib/types'
 
 const TABS = [
   { id: 'decision', label: 'Decision' },
+  /* Computed stop/target/size — not part of the agents' output, so it renders
+     its own panel rather than markdown. */
+  { id: 'levels', label: 'Levels' },
   { id: 'bull', label: 'Bull case' },
   { id: 'bear', label: 'Bear case' },
   { id: 'risk', label: 'Risk' },
@@ -30,6 +34,8 @@ function elapsedFor(run: RunDetail): string {
 
 function pickByTab(run: RunDetail, tab: TabId): string | null | undefined {
   switch (tab) {
+    case 'levels':
+      return null /* rendered by LevelsPanel, not markdown */
     case 'decision':
       return run.decision_text || run.final_trade_decision
     case 'bull':
@@ -249,6 +255,8 @@ export function ReadingMode({ run }: { run: RunDetail }) {
                 >
                   {run.error ?? 'Run did not complete.'}
                 </div>
+              ) : tab === 'levels' ? (
+                <LevelsPanel runId={run.id} />
               ) : (
                 <ReportBody
                   markdown={pickByTab(run, tab) ?? ''}

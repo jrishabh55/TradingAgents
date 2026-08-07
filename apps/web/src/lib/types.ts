@@ -73,6 +73,64 @@ export interface ConfigResponse {
   default_ticker: string
 }
 
+/* Computed risk levels — see apps/api/integrations/levels.py.
+   Derived from OHLCV, not from the agents: the Trader asserts its own stop
+   without price access, so `model_suggested` is shown for comparison only. */
+
+export interface LevelValue {
+  price: number
+  /** The rule that produced this number, e.g. "20-bar swing low less 0.25x ATR". */
+  basis: string
+}
+
+export interface ComputedLevels {
+  entry: LevelValue
+  stop: LevelValue
+  target: LevelValue
+  target_alt: LevelValue
+  risk_per_share: number
+  risk_pct_of_entry: number
+  reward_risk_ratio: number
+  resistance?: LevelValue | null
+}
+
+export interface PositionSize {
+  shares: number
+  cash_risk: number
+  position_value: number
+  capital: number
+  risk_pct: number
+  basis: string
+}
+
+export interface ModelSuggested {
+  stop_loss?: number | null
+  entry_price?: number | null
+  position_sizing?: string | null
+}
+
+export interface LevelsResponse {
+  run_id: string
+  ticker: string
+  analysis_date: string
+  rating?: string | null
+  /** Quote currency of the instrument. `capital` is assumed to be in it. */
+  currency?: string | null
+  viable: boolean
+  viability_notes: string[]
+  levels?: ComputedLevels | null
+  size?: PositionSize | null
+  model_suggested?: ModelSuggested | null
+  divergence?: string | null
+  disclaimer: string
+}
+
+export interface LevelsParams {
+  capital: number
+  risk_pct?: number
+  r_multiple?: number
+}
+
 /* SSE event taxonomy — see webapp/jobs/translator.py */
 export type SseEventType =
   | 'run.started'
