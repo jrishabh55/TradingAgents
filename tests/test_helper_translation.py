@@ -49,11 +49,19 @@ def _body(**over):
 # ---------- model resolution ----------
 
 
+def test_no_alias_name_contains_codex():
+    """langchain's `_model_prefers_responses_api` treats any model name
+    containing "codex" as Responses-only, which would make it POST /responses
+    and 404 against this helper."""
+    from apps.helper.providers.codex import CODEX_ALIASES
+    assert [a for a in CODEX_ALIASES if "codex" in a] == []
+
+
 def test_quick_and_deep_aliases_map_to_model_plus_effort():
     """Per-tier effort can only ride in the model name — one kwargs dict feeds
     both the deep and quick clients, so config cannot express it."""
-    q = build_request_body(_req(model="codex-quick"), CODEX_QUIRKS)
-    d = build_request_body(_req(model="codex-deep"), CODEX_QUIRKS)
+    q = build_request_body(_req(model="ta-quick"), CODEX_QUIRKS)
+    d = build_request_body(_req(model="ta-deep"), CODEX_QUIRKS)
     assert (q["model"], q["reasoning"]["effort"]) == ("gpt-5.6-luna", "low")
     assert (d["model"], d["reasoning"]["effort"]) == ("gpt-5.6-sol", "high")
 

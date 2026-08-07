@@ -44,9 +44,14 @@ _REAL_MODELS = frozenset(
 # The pipeline DOES set deep_think_llm and quick_think_llm independently, so the
 # tier rides in the model name. Point quick at luna and deep at sol and the ten
 # legwork agents stop consuming frontier quota.
+# NOTE: alias names must NOT contain the substring "codex".
+# langchain_openai's `_model_prefers_responses_api()` returns True for any model
+# name containing "codex", which silently switches the client onto the Responses
+# API and makes it POST /responses instead of /chat/completions — a 404 against
+# this helper. Cost an hour to find; there is a test pinning it.
 CODEX_ALIASES: dict[str, ModelAlias] = {
-    "codex-quick": ModelAlias("gpt-5.6-luna", "low"),
-    "codex-deep": ModelAlias("gpt-5.6-sol", "high"),
+    "ta-quick": ModelAlias("gpt-5.6-luna", "low"),
+    "ta-deep": ModelAlias("gpt-5.6-sol", "high"),
     **{
         f"{m}-{eff}": ModelAlias(m, eff)
         for m in _REAL_MODELS
@@ -418,3 +423,92 @@ def parse_sse_lines(lines: Iterable[bytes | str]) -> Iterable[dict[str, Any]]:
             yield json.loads(payload)
         except json.JSONDecodeError:
             continue
+
+
+# --------------------------------------------------------------------------
+# transport
+# --------------------------------------------------------------------------
+
+
+class CodexResponsesAdapter:
+    """Sends a NormalizedRequest to the Codex Responses endpoint.
+
+    Streaming is mandatory upstream (`stream: true`), so this always consumes an
+    SSE stream even though it returns a single non-streaming result. The stream is
+    abandoned as soon as the caller cancels, so a cancelled run stops billing
+    instead of running to completion in the background.
+    """
+
+    name = "codex-responses"
+
+    def __init__(self, url: str = CODEX_URL, client: Any = None) -> None:
+        self._url = url
+        self._client = client  # injectable for tests
+
+    async def send(self, req, cred, quirks, ctx):  # noqa: ANN001 - Protocol-typed
+        import httpx
+
+        body = build_request_body(req, quirks)
+        headers = {
+            "Authorization": f"Bearer {cred.token}",
+            "Content-Type": "application/json",
+            "session_id": new_session_id(),  # dynamic; static ones are in quirks
+            **quirks.headers,
+            **cred.headers,
+        }
+
+        client = self._client or httpx.AsyncClient(timeout=httpx.Timeout(ctx.timeout_s))
+        owns_client = self._client is None
+        try:
+            async with client.stream(
+                "POST", self._url, json=body, headers=headers
+            ) as response:
+                if response.status_code >= 400:
+                    raw = (await response.aread()).decode("utf-8", "replace")
+                    _raise_for_status(response.status_code, raw, response.headers)
+                events = []
+                async for line in response.aiter_lines():
+                    if ctx.is_cancelled():
+                        # Leaving the context manager aborts the HTTP stream.
+                        raise UpstreamFailure("call cancelled by caller")
+                    stripped = line.strip()
+                    if not stripped.startswith("data:"):
+                        continue
+                    payload = stripped[5:].strip()
+                    if not payload or payload == "[DONE]":
+                        continue
+                    try:
+                        events.append(json.loads(payload))
+                    except json.JSONDecodeError:
+                        continue
+        finally:
+            if owns_client:
+                await client.aclose()
+
+        real_model, _ = quirks.resolve_model(req.model)
+        return assemble_response(events, model=real_model)
+
+
+def _raise_for_status(status: int, raw: str, headers: Any) -> None:
+    """Map an upstream HTTP error to the right status, preserving what we can."""
+    message = raw
+    try:
+        parsed = json.loads(raw)
+        message = _extract_error_message(parsed) or raw
+    except json.JSONDecodeError:
+        pass
+
+    if status == 429:
+        retry = None
+        try:
+            retry = headers.get("retry-after")
+        except Exception:  # noqa: BLE001
+            pass
+        raise RateLimited(message or "rate limited upstream", retry_after=retry)
+    if status in (401, 403):
+        raise Unauthorized(message or "upstream rejected the credential")
+    if status == 400:
+        # Not every 400 is a model error — surface the upstream text so a
+        # rejected parameter is diagnosable rather than a generic failure.
+        raise BadRequest(message or "upstream rejected the request")
+    raise UpstreamFailure(f"upstream returned {status}: {message[:300]}")
