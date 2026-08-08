@@ -1,7 +1,9 @@
 import type {
   ConfigResponse,
+  HelperStatus,
   LevelsParams,
   LevelsResponse,
+  PairResponse,
   RunDetail,
   RunRequest,
   RunSummary,
@@ -132,6 +134,14 @@ export const api = {
     }),
   cancelRun: (id: string) =>
     jsonFetch<{ ok: boolean }>(`/runs/${id}/cancel`, { method: 'POST' }),
+  /* Resume an `interrupted` run from its checkpoint. 409 carries a
+     human-readable `detail` (no checkpoint, already resuming, limit hit). */
+  resumeRun: (id: string) =>
+    jsonFetch<RunDetail>(`/runs/${id}/resume`, { method: 'POST' }),
+  getHelperStatus: () => jsonFetch<HelperStatus>('/helper/status'),
+  /* Mint a helper pairing token. The token is shown once and never
+     retrievable again; `command` is ready to paste into a shell. */
+  pairHelper: () => jsonFetch<PairResponse>('/relay/pair', { method: 'POST' }),
   reportUrl: (id: string) => `${API_BASE}/runs/${id}/report.md`,
   /* Deterministic arithmetic server-side, so it's cheap to re-request as the
      user changes capital or risk — no pipeline re-run. */

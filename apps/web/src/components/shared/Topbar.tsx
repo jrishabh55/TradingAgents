@@ -5,8 +5,9 @@ export interface TopbarProps {
   ticker?: string
   date?: string
   /* `running` shows a yellow live pill, `done` shows a green completed pill,
-     `idle` (default) shows nothing in the right slot. */
-  state?: 'idle' | 'running' | 'done' | 'failed'
+     `interrupted` an orange warning pill, `idle` (default) shows nothing in
+     the right slot. */
+  state?: 'idle' | 'running' | 'done' | 'failed' | 'interrupted'
   elapsed?: string | null
   total?: string | null
   onCancel?: () => void
@@ -59,6 +60,12 @@ export function Topbar({
         <span className="es-pill err">
           <span className="es-dot" />
           Run failed
+        </span>
+      )}
+      {state === 'interrupted' && (
+        <span className="es-pill warn">
+          <span className="es-dot" />
+          Run interrupted
         </span>
       )}
       {state === 'running' && onCancel && (

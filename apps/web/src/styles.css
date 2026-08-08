@@ -222,6 +222,8 @@ body {
 .es-pill.run { background: var(--run-bg); color: var(--run); border-color: rgba(251, 191, 36, 0.3); }
 .es-pill.err { background: var(--err-bg); color: var(--err); border-color: rgba(239, 79, 79, 0.3); }
 .es-pill.info { background: var(--info-bg); color: var(--info); border-color: rgba(108, 208, 255, 0.3); }
+/* warn = interrupted/attention — orange, so it reads apart from the amber `run` pill */
+.es-pill.warn { background: rgba(251, 146, 60, 0.12); color: #fb923c; border-color: rgba(251, 146, 60, 0.3); }
 .es-pill.accent { background: var(--accent-bg); color: var(--accent-hi); border-color: var(--accent-line); }
 
 .es-dot {

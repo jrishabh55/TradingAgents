@@ -1,5 +1,6 @@
-import type { ConfigResponse } from '#/lib/types'
+import type { ConfigResponse, HelperStatus } from '#/lib/types'
 import type { FlowState } from './FlowLanding'
+import { HelperSetup } from './FlowLanding'
 
 const ANALYSTS = [
   { id: 'market', name: 'Market', desc: 'Technicals, charts, indicators' },
@@ -44,6 +45,9 @@ export interface FlowAdvancedProps {
   toggleAnalyst: (id: string) => void
   config: ConfigResponse | null
   submitting: boolean
+  /* Reachability of the local helper — only fetched (by FlowLanding) when
+     the selected provider has `requires_helper`. */
+  helperStatus: HelperStatus | null
   onClose: () => void
   onStart: () => void
 }
@@ -54,10 +58,15 @@ export function FlowAdvanced({
   toggleAnalyst,
   config,
   submitting,
+  helperStatus,
   onClose,
   onStart,
 }: FlowAdvancedProps) {
   const provider = config?.providers.find((p) => p.key === form.provider)
+  /* Mirrors FlowLanding's gate: a helper-backed provider with no reachable
+     helper must not submit a run that is guaranteed to fail. */
+  const helperBlocked =
+    !!provider?.requires_helper && helperStatus?.connected !== true
   const models = config?.models_by_provider[form.provider] ?? []
 
   const supportsReasoning =
@@ -148,7 +157,7 @@ export function FlowAdvanced({
               className="es-btn primary"
               style={{ height: 44, padding: '0 22px', fontSize: 14, marginRight: 6 }}
               onClick={onStart}
-              disabled={submitting || form.analysts.length === 0}
+              disabled={submitting || helperBlocked || form.analysts.length === 0}
             >
               {submitting ? 'Starting…' : 'Start analysis →'}
             </button>
@@ -295,6 +304,9 @@ export function FlowAdvanced({
                   </button>
                 ))}
               </div>
+              {provider?.requires_helper && (
+                <HelperSetup status={helperStatus} />
+              )}
               <div
                 style={{
                   display: 'grid',
@@ -441,7 +453,7 @@ export function FlowAdvanced({
             className="es-btn primary"
             style={{ height: 38, padding: '0 22px' }}
             onClick={onStart}
-            disabled={submitting || form.analysts.length === 0}
+            disabled={submitting || helperBlocked || form.analysts.length === 0}
           >
             {submitting ? 'Starting…' : 'Start analysis →'}
           </button>

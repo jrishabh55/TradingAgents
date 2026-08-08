@@ -7,6 +7,9 @@ export type RunStatus =
   | 'completed'
   | 'failed'
   | 'cancelled'
+  /* Abandoned mid-flight by the server (e.g. process restart); resumable
+     from its checkpoint via POST /runs/{id}/resume. */
+  | 'interrupted'
 
 export interface RunRequest {
   ticker: string
@@ -57,6 +60,26 @@ export interface ProviderOption {
   supports_reasoning_effort?: boolean
   supports_google_thinking?: boolean
   supports_anthropic_effort?: boolean
+  /* Provider proxies through a helper process the user runs locally
+     (e.g. `chatgpt_helper`). Absent/false for normal providers. */
+  requires_helper?: boolean
+}
+
+/* GET /helper/status — whether the user's local helper is reachable. */
+export interface HelperStatus {
+  enabled: boolean
+  mode: 'relay' | 'local' | null
+  connected: boolean
+  /* Where to fetch the helper package; '' when not configured. */
+  download_url: string
+}
+
+/* POST /relay/pair — one-time pairing token (shown once) plus a
+   ready-to-paste shell command that connects a local helper as this user. */
+export interface PairResponse {
+  token: string
+  ws_url: string
+  command: string
 }
 
 export interface ModelOption {
