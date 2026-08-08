@@ -11,9 +11,16 @@
 # this produces the raw artifact TA_HELPER_DOWNLOAD_URL should point at.
 set -euo pipefail
 
-uv pip install pyinstaller -r apps/helper/requirements.txt
+# Package from a dedicated uv-managed venv, NOT the project .venv: uv fetches
+# a native-arch CPython, while the dev venv may sit on a Rosetta/conda
+# x86_64 interpreter — which would silently produce an Intel app and macOS
+# "Support Ending for Intel-Based Apps" warnings on Apple silicon.
+PKG_VENV=build/package-venv
+uv venv -q --python 3.12 "$PKG_VENV"
+uv pip install -q --python "$PKG_VENV/bin/python" \
+  pyinstaller -r apps/helper/requirements.txt
 
-uv run pyinstaller \
+"$PKG_VENV/bin/pyinstaller" \
   --onedir \
   --windowed \
   --name DrishtiHelper \

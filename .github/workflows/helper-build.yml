@@ -20,11 +20,6 @@ on:
 permissions:
   contents: write
 
-env:
-  # The scripts' `uv run pyinstaller` must use the venv we prepare below,
-  # not sync the full trading-stack project — the helper is standalone.
-  UV_NO_SYNC: "1"
-
 jobs:
   macos:
     name: macOS (.dmg + .zip)
@@ -32,12 +27,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
-      - name: Prepare venv with helper deps
-        run: |
-          uv venv --python 3.12
-          uv pip install pyinstaller -r apps/helper/requirements.txt
+      # The build scripts create their own uv-managed packaging venv
+      # (native-arch CPython) — nothing else to prepare.
       - name: Build
         run: bash apps/helper/packaging/build.sh
+      - name: Assert native arm64 binary
+        run: |
+          arch=$(lipo -archs dist/DrishtiHelper.app/Contents/MacOS/DrishtiHelper)
+          echo "built arch: $arch"
+          [ "$arch" = "arm64" ]
       - uses: actions/upload-artifact@v4
         with:
           name: helper-macos
@@ -57,10 +55,6 @@ jobs:
           if (-not (Get-Command iscc -ErrorAction SilentlyContinue)) {
             choco install innosetup -y --no-progress
           }
-      - name: Prepare venv with helper deps
-        run: |
-          uv venv --python 3.12
-          uv pip install pyinstaller -r apps/helper/requirements.txt
       - name: Build
         run: powershell -ExecutionPolicy Bypass -File apps/helper/packaging/build.ps1
       - name: Fail if the installer was skipped
