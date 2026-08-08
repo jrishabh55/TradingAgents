@@ -126,6 +126,24 @@ def _login(args: argparse.Namespace) -> int:
     return 0
 
 
+def _connect(args: argparse.Namespace) -> int:
+    """Hold an outbound connection to the hosted server until interrupted.
+
+    The helper dials OUT, so nothing on this machine needs to be reachable from
+    the internet — no port forwarding, no tunnel.
+    """
+    from apps.helper.relay_client import RelayClient
+
+    client = RelayClient(args.url, args.token)
+    print(f"connecting to {args.url} … (ctrl-c to stop)")
+    try:
+        asyncio.run(client.run_forever())
+    except KeyboardInterrupt:
+        client.stop()
+        print("\ndisconnected")
+    return 0
+
+
 def _status(_args: argparse.Namespace) -> int:
     from apps.helper.credentials.cli_file import codex_cli_source, gemini_cli_source
 
@@ -167,6 +185,13 @@ def main(argv: Optional[list[str]] = None) -> int:
     p.add_argument("--port", type=int, default=DEFAULT_CALLBACK_PORT)
     p.add_argument("--timeout", type=int, default=300)
     p.set_defaults(func=_login)
+
+    p = sub.add_parser("connect", help="attach this helper to a hosted server")
+    p.add_argument("--url", required=True,
+                   help="wss://your-app/api/relay/ws")
+    p.add_argument("--token", required=True,
+                   help="your session token from the hosted app")
+    p.set_defaults(func=_connect)
 
     p = sub.add_parser("status", help="show which credential sources are usable")
     p.set_defaults(func=_status)

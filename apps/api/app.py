@@ -29,6 +29,7 @@ from fastapi.staticfiles import StaticFiles
 
 from apps.api.auth import auth_middleware, get_verifier
 from apps.api.routes.config import router as config_router
+from apps.api.routes.relay import router as relay_router
 from apps.api.routes.runs import router as runs_router
 from apps.api.routes.stream import router as stream_router
 from apps.api.jobs.bus import get_bus
@@ -99,6 +100,10 @@ def create_app() -> FastAPI:
     app.include_router(config_router, prefix="/api")
     app.include_router(runs_router, prefix="/api")
     app.include_router(stream_router, prefix="/api")
+    # No prefix: these two routes deliberately live on different roots. The
+    # websocket is public under /api/relay/ws, while the shim sits on /internal
+    # so the frontend's /api/* catch-all proxy does not expose it.
+    app.include_router(relay_router)
 
     # Static frontend.
     if STATIC_DIR.is_dir():
