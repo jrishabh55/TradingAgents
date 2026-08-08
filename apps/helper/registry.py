@@ -114,6 +114,7 @@ def default_registry(**overrides: Any) -> Registry:
     touching the filesystem.
     """
     from apps.helper.credentials.cli_file import codex_cli_source
+    from apps.helper.credentials.oauth import OwnOAuthSource
     from apps.helper.providers.codex import CODEX_QUIRKS, CodexResponsesAdapter
 
     codex = Provider(
@@ -125,7 +126,7 @@ def default_registry(**overrides: Any) -> Registry:
         # the chain falls through. Our own OAuth (M3) appends here, and a
         # Gemini provider appends gemini_cli_source the same way — installation
         # of any CLI is never load-bearing.
-        credentials=(codex_cli_source(),),
+        credentials=(codex_cli_source(), OwnOAuthSource()),
     )
     return Registry([codex])
 
