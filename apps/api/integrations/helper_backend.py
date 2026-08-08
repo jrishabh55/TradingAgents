@@ -67,14 +67,62 @@ def helper_base_url() -> str:
 
 
 def helper_enabled() -> bool:
-    """Whether runs should be routed through the helper.
+    """Whether runs should be routed through the LOCAL (loopback) helper.
 
     Opt-in via ``TA_HELPER_URL``, or implicitly when a token file exists — a
     local user who has started the helper should not also have to set env vars.
+    A user whose helper connects over the relay is covered by
+    :func:`relay_available` instead.
     """
     if os.environ.get(HELPER_URL_ENV):
         return True
     return bool(helper_credential())
+
+
+#: Where the pipeline's worker thread reaches this API's own relay shim. The
+#: shim is plain HTTP on this same server; the worker just needs a routable
+#: address for it (uvicorn's port isn't knowable from here).
+SELF_URL_ENV = "WEBAPP_SELF_URL"
+DEFAULT_SELF_URL = "http://127.0.0.1:8080"
+
+
+def relay_shim_url() -> str:
+    base = os.environ.get(SELF_URL_ENV, DEFAULT_SELF_URL).rstrip("/")
+    return f"{base}/internal/relay/v1/codex"
+
+
+def relay_available(user_id: Optional[str]) -> bool:
+    """Whether ``user_id``'s own helper is connected over the relay right now."""
+    from apps.api.relay import get_relay_registry
+
+    return get_relay_registry().is_connected(user_id or "anonymous")
+
+
+def local_helper_reachable(timeout_s: float = 1.0) -> bool:
+    """Whether the configured local helper is actually serving right now.
+
+    ``helper_enabled()`` only proves configuration (a token file can outlive
+    the daemon); routing a run at a dead endpoint fails on its first LLM call.
+    Probes the unauthenticated /healthz liveness route.
+    """
+    if not helper_enabled():
+        return False
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+
+    parts = urllib.parse.urlsplit(helper_base_url())
+    probe = f"{parts.scheme}://{parts.netloc}/healthz"
+    try:
+        with urllib.request.urlopen(probe, timeout=timeout_s) as res:
+            return 200 <= res.status < 300
+    except (urllib.error.URLError, OSError, ValueError):
+        return False
+
+
+def helper_ready(user_id: Optional[str]) -> bool:
+    """A live local helper OR this user's helper connected over the relay."""
+    return local_helper_reachable() or relay_available(user_id)
 
 
 #: Provider key the UI sends when the user picks the local helper. Mapped to

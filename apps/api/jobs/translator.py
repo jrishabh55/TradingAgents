@@ -88,6 +88,39 @@ class ChunkTranslator:
             if self.final_state.get(report_key):
                 self._analyst_completed.add(analyst_key)
                 self._announced_started.add(analyst_key)
+        # Same for the debate machinery: without seeding the accumulated
+        # fragment lengths and team flags, the first post-resume chunk (values
+        # mode carries the FULL state) would re-emit every debate turn and
+        # team transition the interrupted attempt already streamed.
+        inv = self.final_state.get("investment_debate_state") or {}
+        risk = self.final_state.get("risk_debate_state") or {}
+        for key, text in (
+            ("investment.bull", inv.get("bull_history")),
+            ("investment.bear", inv.get("bear_history")),
+            ("risk.aggressive", risk.get("aggressive_history")),
+            ("risk.conservative", risk.get("conservative_history")),
+            ("risk.neutral", risk.get("neutral_history")),
+        ):
+            if text:
+                self._debate_lengths[key] = len(str(text).strip())
+        if inv.get("bull_history") or inv.get("bear_history"):
+            self._research_team_started = True
+        if inv.get("judge_decision"):
+            self._research_team_completed = True
+        if self.final_state.get("trader_investment_plan"):
+            self._trader_started = True
+            self._trader_completed = True
+        if any(
+            risk.get(k)
+            for k in ("aggressive_history", "conservative_history", "neutral_history")
+        ):
+            self._risk_started.add("risk")
+        if risk.get("judge_decision"):
+            self._portfolio_completed = True
+        # Not seeded: _processed_message_ids — event payloads don't persist
+        # message ids, so raw message/tool.called events from before the
+        # interruption may re-emit once. Cosmetic (ticker panel only); every
+        # report/debate/transition event above is properly deduplicated.
 
     # ---------- public ----------
 

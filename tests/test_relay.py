@@ -179,6 +179,44 @@ def test_a_retry_after_the_answer_is_free():
     run(scenario())
 
 
+def test_a_cancelled_waiter_does_not_poison_the_shared_call():
+    """The owning HTTP request being cancelled (client disconnect) must not
+    fail other callers piggybacking on the same in-flight call, and must not
+    abandon the answer — a retry is served from cache, not re-billed."""
+    async def scenario():
+        reg = RelayRegistry()
+        helper, _ = _wire(reg, delay=0.05)
+        t1 = asyncio.create_task(reg.dispatch("u1", "codex", BODY))
+        t2 = asyncio.create_task(reg.dispatch("u1", "codex", BODY))
+        await asyncio.sleep(0.01)
+        t1.cancel()
+        assert await t2 == {"status": 200, "body": {"ok": True}}
+        with pytest.raises(asyncio.CancelledError):
+            await t1
+        assert helper.calls == 1
+        # The cancelled waiter's retry is free — the shared task cached it.
+        assert await reg.dispatch("u1", "codex", BODY) == {"status": 200, "body": {"ok": True}}
+        assert helper.calls == 1
+
+    run(scenario())
+
+
+def test_the_answer_survives_every_waiter_hanging_up():
+    async def scenario():
+        reg = RelayRegistry()
+        helper, _ = _wire(reg, delay=0.05)
+        t1 = asyncio.create_task(reg.dispatch("u1", "codex", BODY))
+        await asyncio.sleep(0.01)
+        t1.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await t1
+        await asyncio.sleep(0.1)  # let the now-unwatched shared task finish
+        assert await reg.dispatch("u1", "codex", BODY) == {"status": 200, "body": {"ok": True}}
+        assert helper.calls == 1
+
+    run(scenario())
+
+
 def test_a_different_body_is_not_served_from_cache():
     async def scenario():
         reg = RelayRegistry()

@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TradingAgents Helper</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; background: #0d1117; color: #e6edf3;
+         font: 14px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 620px; margin: 40px auto; padding: 0 20px; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .sub { color: #8b949e; margin: 0 0 24px; }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 10px;
+          padding: 18px 20px; margin-bottom: 16px; }
+  .card h2 { font-size: 14px; margin: 0 0 10px; }
+  .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: #f85149; flex: none; }
+  .dot.ok { background: #3fb950; }
+  .dot.warn { background: #d29922; }
+  .muted { color: #8b949e; font-size: 12.5px; }
+  .err { color: #f85149; font-size: 12.5px; margin-top: 8px; white-space: pre-wrap; }
+  button { background: #238636; color: #fff; border: 0; border-radius: 6px;
+           padding: 7px 14px; font-size: 13px; cursor: pointer; }
+  button:disabled { background: #30363d; color: #8b949e; cursor: default; }
+  button.ghost { background: transparent; border: 1px solid #30363d; color: #e6edf3; }
+  input { background: #0d1117; border: 1px solid #30363d; border-radius: 6px;
+          color: #e6edf3; padding: 7px 10px; font-size: 13px; width: 100%;
+          box-sizing: border-box; margin: 4px 0 10px; }
+  label { font-size: 12.5px; color: #8b949e; }
+  code { background: #0d1117; border: 1px solid #30363d; border-radius: 4px;
+         padding: 1px 5px; font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>TradingAgents Helper</h1>
+  <p class="sub">Runs analyses on this machine with your own ChatGPT subscription.
+     Leave it running — the portal connects automatically.</p>
+
+  <div class="card" id="login-card">
+    <h2>1 · ChatGPT account</h2>
+    <div class="row"><span class="dot" id="cred-dot"></span><span id="cred-text">Checking…</span></div>
+    <div class="muted" id="cred-detail"></div>
+    <div style="margin-top:10px"><button id="login-btn">Sign in with ChatGPT</button></div>
+    <div class="err" id="login-err"></div>
+  </div>
+
+  <div class="card" id="relay-card">
+    <h2>2 · Web portal connection</h2>
+    <div class="row"><span class="dot" id="relay-dot"></span><span id="relay-text">Checking…</span></div>
+    <div class="muted" id="relay-detail"></div>
+    <div id="relay-form" style="margin-top:10px; display:none">
+      <label>Portal address (from the portal's setup card)</label>
+      <input id="relay-url" placeholder="wss://your-portal.example.com/api/relay/ws">
+      <label>Connect code</label>
+      <input id="relay-token" placeholder="tarelay_…">
+      <button id="relay-connect">Connect</button>
+      <div class="err" id="relay-err"></div>
+    </div>
+    <div id="relay-actions" style="margin-top:10px; display:none">
+      <button class="ghost" id="relay-forget">Disconnect &amp; forget</button>
+      <div class="muted" style="margin-top:8px">Wrong account? Disconnect &amp; forget,
+        then paste a fresh connect code from the portal.</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>3 · This app</h2>
+    <div class="row">
+      <label style="display:flex;align-items:center;gap:8px;color:#e6edf3;font-size:13px;cursor:pointer">
+        <input type="checkbox" id="autostart-cb" style="width:auto;margin:0">
+        Start automatically when I log in
+      </label>
+    </div>
+    <div class="muted" id="version-line" style="margin-top:8px"></div>
+    <div id="update-row" style="display:none;margin-top:8px" class="row">
+      <span class="dot warn"></span><span id="update-text"></span>
+      <button id="update-btn">Download update</button>
+    </div>
+    <div class="err" id="app-err"></div>
+  </div>
+
+  <p class="muted">Local endpoint for same-machine use: <code id="local-ep"></code></p>
+</div>
+
+<script>
+(() => {
+  const token = new URLSearchParams(location.search).get('token') || '';
+  const H = { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' };
+  const $ = (id) => document.getElementById(id);
+  $('local-ep').textContent = location.origin + '/v1/{provider}/chat/completions';
+
+  async function api(path, opts) {
+    const r = await fetch(path, Object.assign({ headers: H }, opts));
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error((body.error && body.error.message) || r.statusText);
+    return body;
+  }
+
+  function render(s) {
+    // Credential
+    const provs = Object.values(s.providers || {});
+    const ready = provs.find(p => p.ready);
+    const pending = s.login && s.login.status === 'pending';
+    $('cred-dot').className = 'dot' + (ready ? ' ok' : (pending ? ' warn' : ''));
+    $('cred-text').textContent = ready
+      ? `Signed in — ${ready.account || 'account'}${ready.plan ? ' (' + ready.plan + ')' : ''}`
+      : (pending ? 'Waiting for the browser sign-in…' : 'Not signed in');
+    $('cred-detail').textContent = ready ? '' : (provs[0] && provs[0].remedy) || '';
+    $('login-btn').style.display = ready ? 'none' : '';
+    $('login-btn').disabled = pending;
+    $('login-err').textContent = (s.login && s.login.status === 'error') ? s.login.error : '';
+
+    // Relay
+    const rl = s.relay || {};
+    $('relay-dot').className = 'dot' + (rl.connected ? ' ok' : (rl.configured ? ' warn' : ''));
+    $('relay-text').textContent = rl.connected
+      ? 'Connected to the portal' + (rl.user ? ` — serving account ${rl.user}` : '')
+      : (rl.configured ? 'Reconnecting…' : 'Not connected');
+    $('relay-detail').textContent = rl.connected ? rl.url : '';
+    $('relay-form').style.display = rl.configured ? 'none' : '';
+    $('relay-actions').style.display = rl.configured ? '' : 'none';
+    $('relay-err').textContent = (!rl.connected && rl.configured && rl.error) ? rl.error : '';
+
+    // This app
+    if (s.autostart) $('autostart-cb').checked = !!s.autostart.enabled;
+    const up = s.update || {};
+    $('version-line').textContent = up.current ? 'Version ' + up.current : '';
+    $('update-row').style.display = up.available ? '' : 'none';
+    $('update-text').textContent = up.available ? 'Version ' + up.latest + ' is available.' : '';
+  }
+
+  async function refresh() {
+    try { render(await api('/ui/api/state')); }
+    catch (e) { $('cred-text').textContent = 'Helper unreachable: ' + e.message; }
+  }
+
+  $('login-btn').onclick = async () => {
+    $('login-err').textContent = '';
+    try {
+      const { authorize_url } = await api('/ui/api/login', { method: 'POST' });
+      window.open(authorize_url, '_blank');
+    } catch (e) { $('login-err').textContent = e.message; }
+    refresh();
+  };
+
+  $('relay-connect').onclick = async () => {
+    $('relay-err').textContent = '';
+    try {
+      await api('/ui/api/relay', {
+        method: 'POST',
+        body: JSON.stringify({ url: $('relay-url').value, token: $('relay-token').value }),
+      });
+    } catch (e) { $('relay-err').textContent = e.message; }
+    refresh();
+  };
+
+  $('autostart-cb').onchange = async (e) => {
+    $('app-err').textContent = '';
+    try {
+      await api('/ui/api/autostart', {
+        method: 'POST', body: JSON.stringify({ enabled: e.target.checked }),
+      });
+    } catch (err) { $('app-err').textContent = err.message; }
+    refresh();
+  };
+
+  $('update-btn').onclick = async () => {
+    $('app-err').textContent = '';
+    try { await api('/ui/api/update/open', { method: 'POST' }); }
+    catch (err) { $('app-err').textContent = err.message; }
+  };
+
+  $('relay-forget').onclick = async () => {
+    try { await api('/ui/api/relay', { method: 'DELETE' }); }
+    catch (e) { $('relay-err').textContent = e.message; }
+    refresh();
+  };
+
+  refresh();
+  setInterval(refresh, 2000);
+})();
+</script>
+</body>
+</html>

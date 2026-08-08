@@ -103,6 +103,55 @@ Vite proxy forwards `/api/*` to `WEBAPP1_API_BASE` (default
 `http://127.0.0.1:8080`), so you typically run the API natively in another
 terminal at the same time.
 
+### Helper (run analyses on the user's own ChatGPT subscription)
+
+The helper (`apps/helper/`) is a local daemon exposing an OpenAI-compatible
+endpoint on `127.0.0.1:8899`, backed by the user's own ChatGPT login.
+
+**End users get it as a desktop app** — build with
+`bash apps/helper/packaging/build.sh` (PyInstaller, single executable), host
+the artifact wherever, and point `TA_HELPER_DOWNLOAD_URL` at it. Opening the
+app launches a local control page (`/ui`) where the user signs in with
+ChatGPT and pastes the portal address + connect code from the web UI's setup
+card. The connection persists (`~/.tradingagents/relay.json`), so the app
+auto-reconnects on every launch — after first-time setup, nothing to do.
+
+Developer equivalents (from the repo root, after
+`uv pip install -r apps/helper/requirements.txt`):
+
+```sh
+python -m apps.helper app      # what the packaged binary runs: serve + UI + auto-reconnect
+python -m apps.helper login    # CLI browser OAuth (the app's UI button does this too)
+python -m apps.helper serve    # loopback server only
+python -m apps.helper connect --url wss://… --token tarelay_…   # relay only, headless
+```
+
+State (tokens, the local bearer token, relay config) lives in
+`~/.tradingagents/`. The API picks a local helper up automatically once its
+token file exists — check `GET /api/helper/status` if it reads as
+disconnected.
+
+**Hosted flow (relay):** the web UI's provider picker offers "Generate connect
+code" (`POST /api/relay/pair`; requires Clerk or `WEBAPP_AUTH_TOKEN` — refused
+in open mode) and shows what to paste into the helper app. Once the helper
+dials in, the UI flips to connected on its own and runs route through the
+user's subscription. Relevant env on the API side:
+
+- `WEBAPP_SELF_URL` — how the pipeline worker reaches this API's own relay
+  shim (default `http://127.0.0.1:8080`; set it if the API serves elsewhere).
+- `WEBAPP_PUBLIC_URL` — the origin USERS reach the portal at (e.g.
+  `https://trade.example.com`). Used to build the relay address in connect
+  codes; without it the API falls back to `X-Forwarded-*` headers. Note the
+  helper connects to this origin directly — the Vite dev proxy does not
+  forward websockets.
+- `TA_HELPER_DOWNLOAD_URL` — download link for the packaged helper app shown
+  in the UI. When unset, the API auto-serves a local build: run
+  `bash apps/helper/packaging/build.sh` and the resulting
+  `dist/TradingAgentsHelper.zip` is offered at `/api/helper/download`
+  (unauthenticated — it's a public artifact) and the UI link appears on its
+  own. Note the build is for the OS/arch it ran on; multi-platform artifacts
+  are a release-pipeline job. `TA_HELPER_DIST_FILE` overrides the file path.
+
 ---
 
 ## Env vars

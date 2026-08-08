@@ -21,6 +21,10 @@ from apps.helper.types import NormalizedResponse, ToolCall, Usage
 def app(monkeypatch):
     for var in ("CLERK_JWKS_URL", "CLERK_ISSUER", "WEBAPP_AUTH_TOKEN"):
         monkeypatch.delenv(var, raising=False)
+    # The websocket refuses open (unauthenticated) mode outright — an
+    # unauthenticated registration could displace a real helper — so the
+    # fixture runs in shared-bearer mode. Individual tests override.
+    monkeypatch.setenv("WEBAPP_AUTH_TOKEN", "relay-test-token")
     from apps.api.auth import reset_verifier_for_tests
 
     reset_verifier_for_tests()
@@ -30,10 +34,13 @@ def app(monkeypatch):
     return a
 
 
+#: Authenticated websocket path for the fixture's shared-bearer mode.
+WS = "/api/relay/ws?token=relay-test-token"
+
 BODY = {"model": "gpt-5.6-luna", "messages": [{"role": "user", "content": "hi"}]}
 
 
-def _mint(user="anonymous"):
+def _mint(user="shared-bearer"):
     return get_internal_tokens().mint(user)
 
 
@@ -105,24 +112,28 @@ def test_the_shim_is_not_under_the_api_prefix(app):
 
 def test_socket_accepts_and_announces_ready(app):
     with TestClient(app) as c:
-        with c.websocket_connect("/api/relay/ws") as ws:
-            assert ws.receive_json()["type"] == "ready"
+        with c.websocket_connect(WS) as ws:
+            ready = ws.receive_json()
+            assert ready["type"] == "ready"
+            # The helper's UI shows whose runs this connection serves; a wrong
+            # pairing must be visible, not a silent "connected".
+            assert ready["user_id"] == "shared-bearer"
 
 
 def test_socket_registers_the_user(app):
     from apps.api.relay import get_relay_registry
 
     with TestClient(app) as c:
-        with c.websocket_connect("/api/relay/ws") as ws:
+        with c.websocket_connect(WS) as ws:
             ws.receive_json()
-            assert get_relay_registry().is_connected("anonymous")
+            assert get_relay_registry().is_connected("shared-bearer")
     # Unregistered on close.
-    assert not get_relay_registry().is_connected("anonymous")
+    assert not get_relay_registry().is_connected("shared-bearer")
 
 
 def test_socket_answers_ping(app):
     with TestClient(app) as c:
-        with c.websocket_connect("/api/relay/ws") as ws:
+        with c.websocket_connect(WS) as ws:
             ws.receive_json()
             ws.send_json({"type": "ping"})
             assert ws.receive_json()["type"] == "pong"
@@ -132,12 +143,12 @@ def test_socket_records_advertised_providers(app):
     from apps.api.relay import get_relay_registry
 
     with TestClient(app) as c:
-        with c.websocket_connect("/api/relay/ws") as ws:
+        with c.websocket_connect(WS) as ws:
             ws.receive_json()
             ws.send_json({"type": "hello", "providers": ["codex", "openai"]})
             ws.send_json({"type": "ping"})
             ws.receive_json()
-            assert get_relay_registry().get("anonymous").providers == ["codex", "openai"]
+            assert get_relay_registry().get("shared-bearer").providers == ["codex", "openai"]
 
 
 def test_socket_rejects_when_clerk_is_configured_without_a_token(app, monkeypatch):
@@ -146,7 +157,7 @@ def test_socket_rejects_when_clerk_is_configured_without_a_token(app, monkeypatc
 
     reset_verifier_for_tests()
     with TestClient(app) as c:
-        with c.websocket_connect("/api/relay/ws") as ws:
+        with c.websocket_connect(WS) as ws:
             assert ws.receive_json() == {"type": "error", "error": "unauthorized"}
 
 
@@ -164,6 +175,120 @@ def test_socket_rejects_a_wrong_legacy_bearer(app, monkeypatch):
             assert ws.receive_json()["type"] == "error"
 
 
+def test_pair_tokens_round_trip_and_revoke(tmp_path):
+    from apps.api.jobs.store import JobStore
+
+    store = JobStore(tmp_path / "runs.sqlite")
+    raw = store.create_pair_token("user_42")
+    assert raw.startswith("tarelay_")
+    assert store.resolve_pair_token(raw) == "user_42"
+    assert store.resolve_pair_token("tarelay_forged") is None
+    # Only the hash is stored — the raw token appears nowhere in the DB.
+    import sqlite3
+
+    rows = sqlite3.connect(tmp_path / "runs.sqlite").execute(
+        "SELECT token_hash FROM relay_pair_tokens"
+    ).fetchall()
+    assert rows and all(raw not in r[0] for r in rows)
+    assert store.revoke_pair_tokens("user_42") == 1
+    assert store.resolve_pair_token(raw) is None
+
+
+def test_socket_accepts_a_pairing_token_as_the_user(app, tmp_path, monkeypatch):
+    """The credential an installed helper daemon holds: no browser, no JWT."""
+    from apps.api.jobs.store import JobStore
+    from apps.api.relay import get_relay_registry
+
+    store = JobStore(tmp_path / "runs.sqlite")
+    monkeypatch.setattr("apps.api.jobs.store.get_store", lambda: store)
+    raw = store.create_pair_token("user_42")
+    with TestClient(app) as c:
+        with c.websocket_connect(f"/api/relay/ws?token={raw}") as ws:
+            assert ws.receive_json()["type"] == "ready"
+            assert get_relay_registry().is_connected("user_42")
+
+
+def test_pair_endpoint_mints_a_usable_command(tmp_path, monkeypatch):
+    from apps.api.jobs.store import JobStore
+
+    store = JobStore(tmp_path / "runs.sqlite")
+    monkeypatch.setattr("apps.api.jobs.store.get_store", lambda: store)
+    # Pairing is refused in open mode; any configured auth mode allows it.
+    monkeypatch.setenv("WEBAPP_AUTH_TOKEN", "s3cret")
+
+    a = FastAPI()
+
+    @a.middleware("http")
+    async def fake_auth(request, call_next):  # noqa: ANN001
+        request.state.user_id = "user_42"
+        return await call_next(request)
+
+    a.include_router(relay_router)
+    with TestClient(a) as c:
+        r = c.post("/api/relay/pair")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["token"].startswith("tarelay_")
+    assert body["ws_url"].endswith("/api/relay/ws")
+    assert body["token"] in body["command"] and body["ws_url"] in body["command"]
+    assert store.resolve_pair_token(body["token"]) == "user_42"
+
+
+def test_pair_endpoint_refuses_open_mode(tmp_path, monkeypatch):
+    """Minting in open mode would hand any caller a token the ws endpoint
+    accepts — bypassing its refusal of unauthenticated registration."""
+    for var in ("CLERK_JWKS_URL", "CLERK_ISSUER", "WEBAPP_AUTH_TOKEN"):
+        monkeypatch.delenv(var, raising=False)
+    from apps.api.auth import reset_verifier_for_tests
+
+    reset_verifier_for_tests()
+
+    a = FastAPI()
+
+    @a.middleware("http")
+    async def fake_auth(request, call_next):  # noqa: ANN001
+        request.state.user_id = "anonymous"
+        return await call_next(request)
+
+    a.include_router(relay_router)
+    with TestClient(a) as c:
+        r = c.post("/api/relay/pair")
+    assert r.status_code == 403
+
+
+def test_pair_ws_url_prefers_the_public_origin(tmp_path, monkeypatch):
+    """Behind the frontend proxy request.url is an internal hostname; the
+    command must carry the address the USER'S machine can reach."""
+    from apps.api.jobs.store import JobStore
+
+    store = JobStore(tmp_path / "runs.sqlite")
+    monkeypatch.setattr("apps.api.jobs.store.get_store", lambda: store)
+    monkeypatch.setenv("WEBAPP_AUTH_TOKEN", "s3cret")
+    monkeypatch.setenv("WEBAPP_PUBLIC_URL", "https://trade.example.com")
+
+    a = FastAPI()
+
+    @a.middleware("http")
+    async def fake_auth(request, call_next):  # noqa: ANN001
+        request.state.user_id = "user_42"
+        return await call_next(request)
+
+    a.include_router(relay_router)
+    with TestClient(a) as c:
+        r = c.post("/api/relay/pair")
+    assert r.json()["ws_url"] == "wss://trade.example.com/api/relay/ws"
+
+
+def test_socket_refuses_open_mode_entirely(app, monkeypatch):
+    """No Clerk, no shared bearer → refuse. Registration is last-writer-wins
+    per user, so an open socket would let any client displace the real helper
+    and intercept that user's LLM traffic."""
+    monkeypatch.delenv("WEBAPP_AUTH_TOKEN", raising=False)
+    with TestClient(app) as c:
+        with c.websocket_connect("/api/relay/ws") as ws:
+            assert ws.receive_json() == {"type": "error", "error": "unauthorized"}
+
+
 # ---------- end to end through a real socket ----------
 
 
@@ -174,7 +299,7 @@ def test_a_request_travels_shim_to_helper_and_back(app):
     captured: dict = {}
 
     with TestClient(app) as c:
-        with c.websocket_connect("/api/relay/ws") as ws:
+        with c.websocket_connect(WS) as ws:
             ws.receive_json()  # ready
 
             def helper_loop():
@@ -207,7 +332,7 @@ def test_a_request_travels_shim_to_helper_and_back(app):
 
 def test_an_upstream_error_status_is_passed_through(app):
     with TestClient(app) as c:
-        with c.websocket_connect("/api/relay/ws") as ws:
+        with c.websocket_connect(WS) as ws:
             ws.receive_json()
 
             def helper_loop():

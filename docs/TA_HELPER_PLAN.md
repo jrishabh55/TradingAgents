@@ -10,6 +10,25 @@ TradingAgents pipeline points at it via `backend_url`; no upstream core edits.
 > 2.5 d → 5.0 d.** Two review claims were themselves wrong and are corrected
 > below with evidence (§0e, §0f).
 
+> **Implementation divergences (as shipped)** — where the code deliberately
+> departs from the sections below; the code is authoritative:
+>
+> * **Storage** lives in `~/.tradingagents/` (shared with the job store), not
+>   `~/.ta-helper/` (§3/§4/§9). No `keyring` — flat 0600 files only.
+> * **Layout** is flat `apps/helper/*.py` reusing the repo venv (deps in
+>   `apps/helper/requirements.txt`), not the `pyproject.toml` + `ta_helper/`
+>   package of §9. Packaging as an installable artifact is still open.
+> * **Relay idempotency** uses a `(user, provider, body)` content-hash
+>   fingerprint for the cache and single-flight keys, not the `req_id` +
+>   fingerprint scheme of §6.2. The single-flight call runs as a detached
+>   task so caller cancellation cannot poison or abandon it.
+> * **M1 items not built:** `OpenAIChatCompletionsAdapter` (so `ApiKeySource`
+>   is currently unused), the `echo` seam provider, `reject_params` /
+>   `max_body_bytes` / `request_timeout_s` quirks, `seed`/`stop`
+>   normalization, `req_id` tracing.
+> * **U3 is resolved** (refresh token rotates — measured; `oauth.py`), §8.2
+>   notwithstanding. U1 (callback port) and U4 (rate limits) remain open.
+
 ---
 
 ## 0. Established facts

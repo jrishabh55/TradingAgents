@@ -47,6 +47,13 @@ class RelayClient:
         self._call_timeout_s = call_timeout_s
         self._tasks: Dict[str, asyncio.Task] = {}
         self._stopping = asyncio.Event()
+        #: Live connection state, for the local UI's status display.
+        self.connected = False
+        #: Last session-ending error, so the UI can say WHY it is not connected.
+        self.last_error: str = ""
+        #: The portal-side account this connection serves (from the server's
+        #: ready frame) — shown in the UI so a wrong pairing is visible.
+        self.remote_user: str = ""
 
     async def run_forever(self) -> None:
         """Connect, serve, reconnect. Returns only when :meth:`stop` is called."""
@@ -58,6 +65,7 @@ class RelayClient:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001 — any failure is retryable
+                self.last_error = f"{type(exc).__name__}: {exc}"
                 logger.warning("relay session ended (%s); retrying in %.0fs", exc, backoff)
             if self._stopping.is_set():
                 break
@@ -78,24 +86,38 @@ class RelayClient:
                 "providers": self._registry.names(),
             }))
             logger.info("relay connected to %s", self.url)
-            async for raw in ws:
-                message = json.loads(raw)
-                kind = message.get("type")
-                if kind == "call":
-                    # A task, not inline: inline handling would block the socket
-                    # so a `cancel` frame could not be read until the call it
-                    # cancels had already finished.
-                    call_id = message.get("id", "")
-                    self._tasks[call_id] = asyncio.create_task(
-                        self._handle_call(ws, message)
-                    )
-                elif kind == "cancel":
-                    task = self._tasks.pop(message.get("id", ""), None)
-                    if task is not None:
-                        task.cancel()
-                elif kind == "error":
-                    logger.error("relay rejected the connection: %s", message.get("error"))
-                    return
+            self.connected = True
+            self.last_error = ""
+            try:
+                async for raw in ws:
+                    message = json.loads(raw)
+                    kind = message.get("type")
+                    if kind == "ready":
+                        self.remote_user = str(message.get("user_id") or "")
+                    elif kind == "call":
+                        # A task, not inline: inline handling would block the socket
+                        # so a `cancel` frame could not be read until the call it
+                        # cancels had already finished.
+                        call_id = message.get("id", "")
+                        self._tasks[call_id] = asyncio.create_task(
+                            self._handle_call(ws, message)
+                        )
+                    elif kind == "cancel":
+                        task = self._tasks.pop(message.get("id", ""), None)
+                        if task is not None:
+                            task.cancel()
+                    elif kind == "error":
+                        logger.error("relay rejected the connection: %s", message.get("error"))
+                        return
+            finally:
+                self.connected = False
+                # The session is over, however it ended. The server has already
+                # failed these calls on its side and will retry on the next
+                # connection; letting them run on would bill the subscription
+                # for answers that can never be delivered.
+                for task in self._tasks.values():
+                    task.cancel()
+                self._tasks.clear()
 
     async def _handle_call(self, ws: Any, message: Dict[str, Any]) -> None:
         call_id = message.get("id", "")

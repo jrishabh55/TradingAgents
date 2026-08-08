@@ -111,6 +111,21 @@ def create_run(
             response.status_code = status.HTTP_200_OK
             return cached
 
+    # A helper-backed run with no helper anywhere (no live loopback on this
+    # host, this user's helper not on the relay) is guaranteed to fail deep in
+    # the pipeline — reject it here with the fix instead. AFTER the cache
+    # lookup on purpose: a cached answer needs no helper.
+    from apps.api.integrations.helper_backend import helper_ready, is_helper_provider
+
+    if is_helper_provider(request.llm_provider) and not helper_ready(user_id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "your helper is not connected — open the helper app on your "
+                "machine (or install it first), then retry"
+            ),
+        )
+
     # Resolve prices before spending anything. Runs after the cache lookup so a
     # cache hit stays instant, and before the active-run guard so a typo can't
     # occupy the per-user ticker slot. On success this warms the OHLCV cache the
@@ -254,11 +269,27 @@ def resume_run(
             ),
         )
 
-    if not store.claim_for_resume(run_id, user_id=user_id):
-        # Someone else won the race between our status read and the claim.
+    # Check helper availability BEFORE consuming the atomic claim: a claim that
+    # then fails graph construction marks the run `failed` permanently, turning
+    # a transiently-disconnected helper into a lost run.
+    from apps.api.integrations.helper_backend import helper_ready, is_helper_provider
+
+    if is_helper_provider(detail.config.get("llm_provider", "")) and not helper_ready(user_id):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="run is already being resumed",
+            detail=(
+                "your helper is not connected — open the helper app on your "
+                "machine, wait for it to connect, then resume"
+            ),
+        )
+
+    if not store.claim_for_resume(run_id, user_id=user_id):
+        # Either someone else won the race between our status read and the
+        # claim, or the run has hit the resume cap (each resume re-bills the
+        # LLM calls after the last checkpoint, so poison runs must not loop).
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="run is already being resumed, or has been resumed too many times",
         )
 
     request = RunRequest(**detail.config)

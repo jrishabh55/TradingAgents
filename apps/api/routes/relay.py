@@ -87,6 +87,13 @@ async def _authenticate_ws(websocket: WebSocket) -> Optional[str]:
     token = header[len("Bearer "):].strip() if header.startswith("Bearer ") else ""
     token = token or (websocket.query_params.get("token") or "").strip()
 
+    # Pairing tokens work in EVERY mode — they are the credential an installed
+    # helper daemon holds, since it has no browser session to get a JWT from.
+    if token.startswith("tarelay_"):
+        from apps.api.jobs.store import get_store
+
+        return get_store().resolve_pair_token(token)
+
     verifier = get_verifier()
     if verifier is not None:
         if not token:
@@ -101,7 +108,66 @@ async def _authenticate_ws(websocket: WebSocket) -> Optional[str]:
     legacy = os.environ.get("WEBAPP_AUTH_TOKEN", "").strip()
     if legacy:
         return "shared-bearer" if token == legacy else None
-    return "anonymous"
+    # Open mode: unlike the HTTP routes, this endpoint is NOT safe to leave
+    # open. Registration is last-writer-wins per user, so an unauthenticated
+    # socket accepting everyone as "anonymous" would let any client displace
+    # the real helper and intercept (or forge) that user's LLM traffic. Local
+    # dev doesn't need the relay — the loopback helper covers it — so refuse.
+    return None
+
+
+def _public_ws_url(request: Request) -> str:
+    """The relay URL as reachable from the USER'S machine.
+
+    ``request.url`` is whatever hop delivered the request — behind the
+    frontend's proxy that is an internal hostname (and the proxy does not
+    forward websocket upgrades anyway), so prefer explicit deployment config,
+    then the standard forwarded headers, and only then the raw request.
+    """
+    import os
+    from urllib.parse import urlsplit
+
+    base = os.environ.get("WEBAPP_PUBLIC_URL", "").strip()
+    if base:
+        parts = urlsplit(base if "//" in base else f"https://{base}")
+        scheme = "ws" if parts.scheme == "http" else "wss"
+        return f"{scheme}://{parts.netloc}/api/relay/ws"
+    proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+    host = request.headers.get("x-forwarded-host", request.url.netloc)
+    scheme = "wss" if proto == "https" else "ws"
+    return f"{scheme}://{host}/api/relay/ws"
+
+
+@router.post("/api/relay/pair")
+def pair_helper(request: Request) -> Dict[str, str]:
+    """Mint a pairing token so the user's helper daemon can connect as them.
+
+    Returned exactly once (only its hash is stored). The response includes the
+    full ``connect`` command so the UI can offer copy-paste setup.
+    """
+    import os
+
+    from apps.api.auth import current_user_id, get_verifier
+    from apps.api.jobs.store import get_store
+
+    # In open mode every HTTP caller is "anonymous", so minting here would hand
+    # any client a token that _authenticate_ws accepts — bypassing the ws
+    # endpoint's own refusal of open mode. No auth, no pairing.
+    if get_verifier() is None and not os.environ.get("WEBAPP_AUTH_TOKEN", "").strip():
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "helper pairing requires authentication to be "
+                               "configured (Clerk or WEBAPP_AUTH_TOKEN)"},
+        )
+
+    user_id = current_user_id(request)
+    token = get_store().create_pair_token(user_id)
+    ws_url = _public_ws_url(request)
+    return {
+        "token": token,
+        "ws_url": ws_url,
+        "command": f"python -m apps.helper connect --url {ws_url} --token {token}",
+    }
 
 
 @router.websocket("/api/relay/ws")
@@ -124,7 +190,12 @@ async def relay_socket(websocket: WebSocket) -> None:
     logger.info("relay connected user=%s conn=%s", user_id, conn.connection_id)
 
     try:
-        await websocket.send_json({"type": "ready", "connection_id": conn.connection_id})
+        # user_id rides along so the helper's UI can show WHOSE runs this
+        # connection will serve — a helper paired to the wrong account
+        # otherwise just reads "connected" with no way to tell.
+        await websocket.send_json(
+            {"type": "ready", "connection_id": conn.connection_id, "user_id": user_id}
+        )
         while True:
             message = await websocket.receive_json()
             kind = message.get("type")

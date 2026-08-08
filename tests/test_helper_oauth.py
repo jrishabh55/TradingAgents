@@ -136,6 +136,14 @@ def test_corrupt_store_loads_as_none_rather_than_raising(tmp_path):
     assert TokenStore(p).load() is None
 
 
+def test_truncated_token_file_loads_as_none_not_bearer_none(tmp_path):
+    """A file missing access_token must read as 'no credential' (re-login),
+    not construct StoredTokens(access_token=None) and send 'Bearer None'."""
+    p = tmp_path / "oauth.json"
+    p.write_text('{"refresh_token": "r-1"}')
+    assert TokenStore(p).load() is None
+
+
 def test_logout_clears_only_our_own_file(tmp_path):
     store = TokenStore(tmp_path / "oauth.json")
     store.save(_tokens())

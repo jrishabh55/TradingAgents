@@ -21,9 +21,8 @@ rather than nice-to-have:
 **There is an ``earliest_refresh_at`` floor**, so refreshing eagerly is rejected
 upstream. We only refresh inside the expiry margin.
 
-Storage is the atomic 0600 file written by :mod:`apps.helper.paths`. The OS
-keychain is used when ``keyring`` happens to be importable, but it is not a
-dependency — adding one for a single file would not earn its keep.
+Storage is the atomic 0600 file written by :mod:`apps.helper.paths`. No OS
+keychain: adding a dependency for a single 0600 file would not earn its keep.
 """
 from __future__ import annotations
 
@@ -125,6 +124,12 @@ class StoredTokens:
     @classmethod
     def from_json(cls, raw: str) -> "StoredTokens":
         data = json.loads(raw)
+        # A truncated or foreign-schema file must fail here, loudly. Loading
+        # access_token=None would flow all the way to the wire as a literal
+        # "Authorization: Bearer None" and surface as a baffling upstream 401
+        # instead of "credential file is corrupt, log in again".
+        if not isinstance(data.get("access_token"), str) or not data["access_token"]:
+            raise ValueError("credential file has no access_token")
         return cls(**{k: data.get(k) for k in cls.__dataclass_fields__})
 
 
@@ -206,12 +211,20 @@ class OwnOAuthSource:
 
         if self._needs_refresh(tokens):
             async with self._lock:
-                # Re-read inside the lock: another caller may have refreshed
-                # while we waited, in which case reusing their result is the
-                # only safe move — our copy of the refresh token is now dead.
-                tokens = self._store.load() or tokens
-                if self._needs_refresh(tokens):
-                    tokens = await self._refresh(tokens)
+                # The asyncio lock covers this process; the file lock covers
+                # `serve` and `connect` running as SEPARATE processes against
+                # the same token file — a cross-process double refresh rotates
+                # twice and strands the session just as surely.
+                fh = await asyncio.to_thread(_acquire_refresh_lock, self._store.path)
+                try:
+                    # Re-read inside the lock: another caller may have refreshed
+                    # while we waited, in which case reusing their result is the
+                    # only safe move — our copy of the refresh token is now dead.
+                    tokens = self._store.load() or tokens
+                    if self._needs_refresh(tokens):
+                        tokens = await self._refresh(tokens)
+                finally:
+                    _release_refresh_lock(fh)
 
         return self._to_credential(tokens)
 
@@ -289,6 +302,45 @@ class OwnOAuthSource:
             plan=meta.get("chatgpt_plan_type"),
             expires_at=tokens.expires_at,
         )
+
+
+def _acquire_refresh_lock(token_path: Path):
+    """Blocking exclusive lock on a sibling of the token file.
+
+    Called via ``asyncio.to_thread`` so the wait doesn't stall the event loop.
+    Returns the open handle. POSIX uses ``flock``; Windows uses ``msvcrt``
+    (which retries for ~10s and then raises — better a loud failure than a
+    silent double refresh that strands the session).
+    """
+    lock_path = token_path.parent / (token_path.name + ".lock")
+    fh = open(lock_path, "a")
+    try:
+        import fcntl
+
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+    except ImportError:
+        import msvcrt
+
+        fh.seek(0)
+        msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
+    return fh
+
+
+def _release_refresh_lock(fh: Any) -> None:
+    if fh is None:
+        return
+    try:
+        try:
+            import fcntl
+
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+        except ImportError:
+            import msvcrt
+
+            fh.seek(0)
+            msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+    finally:
+        fh.close()
 
 
 async def exchange_code(

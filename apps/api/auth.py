@@ -49,8 +49,16 @@ SHARED_BEARER_USER_ID = "shared-bearer"
 
 # Paths that bypass auth entirely. The SPA needs to load before it can attach
 # a token, and oncall scripts hit /health without a token.
-_BYPASS_PATHS = ("/", "/health")
-_BYPASS_PREFIXES = ("/static",)
+# /api/helper/download serves the packaged helper app — a public artifact a
+# not-yet-authenticated user needs, and a bare <a href> carries no bearer.
+# /api/helper/version is its version metadata: running helpers poll it for
+# update checks and hold a relay pairing token, not a Clerk JWT.
+_BYPASS_PATHS = ("/", "/health", "/api/helper/download", "/api/helper/version")
+# /internal/relay is the pipeline worker calling back into this server with a
+# per-run internal token — it has no Clerk JWT. The shim authenticates that
+# token itself (routes/relay.py), which is stronger than the shared bearer:
+# the token is minted per run and revoked when the run ends.
+_BYPASS_PREFIXES = ("/static", "/internal/relay/")
 
 
 def _bypass(path: str) -> bool:

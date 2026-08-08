@@ -130,7 +130,7 @@ class RelayRegistry:
     def __init__(self, *, result_ttl_s: float = RESULT_TTL_S) -> None:
         self._connections: Dict[str, RelayConnection] = {}
         self._results: Dict[str, _CachedResult] = {}
-        self._inflight: Dict[str, asyncio.Future] = {}
+        self._inflight: Dict[str, asyncio.Task] = {}
         self._result_ttl = result_ttl_s
 
     # ---- connection lifecycle ----
@@ -181,36 +181,39 @@ class RelayRegistry:
                 return cached.value
             del self._results[key]
 
-        existing = self._inflight.get(key)
-        if existing is not None:
-            # An identical call is already upstream. Awaiting it is not just an
-            # optimisation — issuing a second would bill twice for one answer.
-            return await asyncio.shield(existing)
+        task = self._inflight.get(key)
+        if task is None:
+            conn = self._connections.get(user_id)
+            if conn is None:
+                raise RelayUnavailable(f"no helper connected for user {user_id!r}")
+            # The upstream call runs as its OWN task, not inside any caller's.
+            # A caller being cancelled (client disconnect, proxy timeout) must
+            # neither abort a call other waiters share nor waste the answer:
+            # the task runs to completion and caches the result, so a retry is
+            # served from cache instead of billing the subscription again.
+            task = asyncio.create_task(
+                self._call_and_cache(key, conn, provider, body, timeout_s)
+            )
+            # Mark the failure retrieved even if every waiter has gone away —
+            # an unconsumed exception makes asyncio log a spurious traceback at
+            # GC time, noise that would hide real failures.
+            task.add_done_callback(lambda t: t.cancelled() or t.exception())
+            self._inflight[key] = task
 
-        conn = self._connections.get(user_id)
-        if conn is None:
-            raise RelayUnavailable(f"no helper connected for user {user_id!r}")
+        # shield: a waiter's own cancellation must not cancel the shared task.
+        return await asyncio.shield(task)
 
-        loop = asyncio.get_running_loop()
-        fut: asyncio.Future = loop.create_future()
-        self._inflight[key] = fut
+    async def _call_and_cache(
+        self,
+        key: str,
+        conn: RelayConnection,
+        provider: str,
+        body: Dict[str, Any],
+        timeout_s: float,
+    ) -> Dict[str, Any]:
         try:
             result = await conn.call(provider, body, timeout_s=timeout_s)
-        except BaseException as exc:
-            if not fut.done():
-                fut.set_exception(exc)
-                # Mark it retrieved. When no other caller is waiting on this
-                # single-flight future, an unconsumed exception makes asyncio
-                # log a spurious traceback at GC time — noise that would hide
-                # real failures in test output and in production logs.
-                fut.add_done_callback(
-                    lambda f: f.cancelled() or f.exception()
-                )
-            raise
-        else:
             self._results[key] = _CachedResult(result)
-            if not fut.done():
-                fut.set_result(result)
             return result
         finally:
             self._inflight.pop(key, None)

@@ -19,6 +19,7 @@ from the same user can't race their own log.
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import threading
@@ -230,7 +231,26 @@ class JobRunner:
         # the request, and the graph re-applies env-derived defaults on top).
         self._graphs[run_id] = graph
         ns = (args.get("config", {}).get("configurable", {}) or {}).get("thread_id")
-        if ns:
+        if resume:
+            # This comparison is the whole reason effective_config is persisted:
+            # the graph re-applies env-derived defaults at build time, so if the
+            # server's env drifted since the run started, resuming would silently
+            # continue under settings the run never launched with. Refuse instead.
+            # Round-trip through JSON so both sides are normalised identically.
+            stored = self.store.get_checkpoint_context(run_id) or {}
+            expected = stored.get("effective_config") or None
+            current = json.loads(
+                json.dumps(_redact_config(dict(graph.config)), sort_keys=True, default=str)
+            )
+            if expected and current != expected:
+                self._fail(
+                    run_id,
+                    "server configuration changed since this run started; "
+                    "resuming under different settings is unsafe — start a new run",
+                    None,
+                )
+                return
+        elif ns:
             self.store.set_checkpoint_context(
                 run_id,
                 checkpoint_ns=ns,
@@ -381,7 +401,17 @@ class JobRunner:
 
     def _close_checkpointer(self, run_id: str) -> None:
         graph = self._graphs.pop(run_id, None)
-        ctx = getattr(graph, "_checkpointer_ctx", None) if graph is not None else None
+        if graph is None:
+            return
+        # A relay-routed run holds a per-run internal token; a leaked token
+        # must die with the run, on every exit path.
+        token = getattr(graph, "_relay_token", None)
+        if token:
+            from apps.api.routes.relay import get_internal_tokens
+
+            get_internal_tokens().revoke(token)
+            graph._relay_token = None
+        ctx = getattr(graph, "_checkpointer_ctx", None)
         if ctx is None:
             return
         try:

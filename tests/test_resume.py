@@ -55,6 +55,24 @@ def test_namespace_handles_absent_user():
     assert checkpoint_namespace("r", None).startswith("anonymous:")
 
 
+def test_a_real_namespace_yields_a_valid_checkpoint_db_key():
+    """Regression: the raw namespace (user:uuid, 40+ chars with a ':') fails
+    upstream's safe_ticker_component unconditionally — every checkpoint-enabled
+    run crashed. The DB filename must be the hashed key, and hashing must not
+    collapse distinct namespaces."""
+    import uuid
+
+    from apps.api.integrations.graph_factory import checkpoint_db_key
+    from tradingagents.dataflows.utils import safe_ticker_component
+
+    ns = checkpoint_namespace(str(uuid.uuid4()), "user_2abcXYZ")
+    with pytest.raises(ValueError):
+        safe_ticker_component(ns)
+    key = checkpoint_db_key(ns)
+    assert safe_ticker_component(key) == key
+    assert checkpoint_db_key(checkpoint_namespace("other-run", "user_2abcXYZ")) != key
+
+
 # ---------- sweep ----------
 
 
@@ -143,6 +161,19 @@ def test_claim_refuses_non_interrupted_runs(store, terminal):
     assert store.claim_for_resume(r, user_id="u1") is False
 
 
+def test_resumes_are_capped(store):
+    """Each resume re-bills the calls after the last checkpoint, so a run that
+    dies the same way every time must stop being resumable."""
+    from apps.api.jobs.store import MAX_RESUMES
+
+    r = _run(store)
+    for _ in range(MAX_RESUMES):
+        store.sweep_orphaned_runs()
+        assert store.claim_for_resume(r, user_id="u1") is True
+    store.sweep_orphaned_runs()
+    assert store.claim_for_resume(r, user_id="u1") is False
+
+
 def test_concurrent_claims_yield_exactly_one_winner(store):
     """The guard is in the WHERE clause, not a read-then-write."""
     import threading
@@ -221,6 +252,18 @@ def test_translator_seeded_state_is_not_re_emitted():
     # market is already completed, so no analyst.completed fires again for it.
     assert not [e for e in events
                 if e.type == "analyst.completed" and e.data.get("analyst") == "market"]
+
+
+def test_translator_seeded_debate_streams_only_the_new_tail():
+    """values-mode chunks carry the FULL debate history; after a resume only
+    the text produced since the interruption may be streamed, and the team
+    must not be re-announced as started."""
+    prior = {"risk_debate_state": {"aggressive_history": "OLD"}}
+    t = ChunkTranslator("r", selected_analysts=["market"], replay_state=prior)
+    events = list(t.handle_chunk({"risk_debate_state": {"aggressive_history": "OLDNEW"}}))
+    updates = [e for e in events if e.type == "debate.update"]
+    assert [u.data["delta"] for u in updates] == ["NEW"]
+    assert not [e for e in events if e.type == "team.started"]
 
 
 def test_translator_still_reports_analysts_that_had_not_finished():

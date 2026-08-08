@@ -89,6 +89,10 @@ def _login(args: argparse.Namespace) -> int:
     state = secrets.token_urlsafe(24)
     url = authorize_url(port=port, challenge=challenge, state=state)
 
+    # Class-level state: clear any residue from a previous attempt in this
+    # process, or a late callback from attempt one could be mistaken for the
+    # answer to attempt two (whose state check it would rightly fail).
+    _CallbackHandler.result = {}
     server = http.server.HTTPServer(("127.0.0.1", port), _CallbackHandler)
     thread = threading.Thread(target=server.handle_request, daemon=True)
     thread.start()
@@ -173,9 +177,92 @@ def _logout(_args: argparse.Namespace) -> int:
     return 0
 
 
+def _app(args: argparse.Namespace) -> int:
+    """The installed-app experience: serve, auto-reconnect, show the UI.
+
+    With pywebview installed the UI opens in its own native window (the OS
+    webview — no browser tab, no terminal); closing the window quits the
+    helper. Without it, we fall back to opening a browser tab. The only
+    browser hop left either way is the ChatGPT OAuth sign-in, which must run
+    in a real browser.
+    """
+    import threading
+    import time
+
+    import uvicorn
+
+    from apps.helper.server import create_app
+
+    token = paths.ensure_local_token()
+    url = f"http://127.0.0.1:{args.port}/ui?token={token}"
+
+    try:
+        import webview
+    except ImportError:
+        webview = None
+
+    # An instance may already be running headless (start-at-login). Don't
+    # fight over the port — just put a window on the existing server.
+    def _already_running() -> bool:
+        import urllib.request
+
+        try:
+            with urllib.request.urlopen(
+                f"http://127.0.0.1:{args.port}/healthz", timeout=1
+            ):
+                return True
+        except OSError:
+            return False
+
+    if _already_running():
+        if args.no_browser:
+            print(f"helper already running on port {args.port}; nothing to do")
+            return 0
+        if webview is not None:
+            webview.create_window("TradingAgents Helper", url, width=680, height=780)
+            webview.start()
+        else:
+            import webbrowser
+
+            webbrowser.open(url)
+        return 0
+
+    app = create_app(token=token, relay_autostart=True)
+
+    if webview is None or args.no_browser:
+        print(f"TradingAgents Helper — control page: {url}")
+        if not args.no_browser:
+            import webbrowser
+
+            # After the server binds; 1s is plenty on loopback.
+            threading.Timer(1.0, lambda: webbrowser.open(url)).start()
+        uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
+        return 0
+
+    # Native-window mode: uvicorn in a daemon thread, webview owns the main
+    # thread (pywebview requires it on macOS).
+    server = uvicorn.Server(
+        uvicorn.Config(app, host="127.0.0.1", port=args.port, log_level="warning")
+    )
+    threading.Thread(target=server.run, daemon=True).start()
+    deadline = time.monotonic() + 10
+    while not server.started and time.monotonic() < deadline:
+        time.sleep(0.05)
+
+    webview.create_window("TradingAgents Helper", url, width=680, height=780)
+    webview.start()  # blocks until the window is closed
+    server.should_exit = True
+    return 0
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m apps.helper")
     sub = parser.add_subparsers(dest="cmd", required=True)
+
+    p = sub.add_parser("app", help="run as the desktop app: serve + local UI + auto-reconnect")
+    p.add_argument("--port", type=int, default=8899)
+    p.add_argument("--no-browser", action="store_true")
+    p.set_defaults(func=_app)
 
     p = sub.add_parser("serve", help="run the loopback API")
     p.add_argument("--port", type=int, default=8899)

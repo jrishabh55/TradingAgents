@@ -60,6 +60,19 @@ def checkpoint_namespace(run_id: str, user_id: Optional[str]) -> str:
     return f"{_safe_user_dir(user_id or 'anonymous')}:{run_id}"
 
 
+def checkpoint_db_key(ns: str) -> str:
+    """Filesystem-safe name for a namespace's checkpoint DB file.
+
+    Upstream's ``get_checkpointer`` validates its second argument with
+    ``safe_ticker_component`` (<=32 chars, no ``:``), which the raw namespace
+    (``user:uuid``, 40+ chars) always fails — so hash it down. The full
+    namespace remains the LangGraph thread_id inside the DB.
+    """
+    import hashlib
+
+    return hashlib.sha256(ns.encode("utf-8")).hexdigest()[:16]
+
+
 def build_graph_for_request(
     request: RunRequest,
     *,
@@ -92,23 +105,62 @@ def build_graph_for_request(
         helper_base_url,
         helper_credential,
         is_helper_provider,
+        local_helper_reachable,
+        relay_available,
+        relay_shim_url,
     )
 
     graph_cls: Any = TradingAgentsGraph
     extra: Dict[str, Any] = {}
+    relay_token: Optional[str] = None
     if is_helper_provider(request.llm_provider):
         config["llm_provider"] = "openai_compatible"
-        config["backend_url"] = request.backend_url or helper_base_url()
         graph_cls = HelperBackedGraph
-        extra["api_key"] = helper_credential()
+        # Deliberately NOT request.backend_url in either branch: that field is
+        # client-supplied, and honouring it here would attach a credential to
+        # an arbitrary caller-chosen host — exfiltrating the token and every
+        # prompt. The helper's address is server config, never request input.
+        #
+        # Reachability, not mere configuration, picks the branch: a token file
+        # outlives its daemon, and routing at a dead loopback endpoint while
+        # the user's helper waits on the relay would fail a run that could
+        # have succeeded.
+        if local_helper_reachable():
+            config["backend_url"] = helper_base_url()
+            extra["api_key"] = helper_credential()
+        elif relay_available(user_id):
+            # The user's own helper, connected over the relay. Route through
+            # this server's shim with a per-run internal token (revoked by the
+            # runner when the run ends, so a leaked token dies with the run).
+            from apps.api.routes.relay import get_internal_tokens
 
-    graph = graph_cls(
-        selected_analysts,
-        config=config,
-        debug=False,
-        callbacks=[stats_handler],
-        **extra,
-    )
+            relay_token = get_internal_tokens().mint(user_id or "anonymous")
+            config["backend_url"] = relay_shim_url()
+            extra["api_key"] = relay_token
+        else:
+            raise RuntimeError(
+                "no helper is available for this run: no local helper is "
+                "configured and your helper is not connected to the relay"
+            )
+
+    try:
+        graph = graph_cls(
+            selected_analysts,
+            config=config,
+            debug=False,
+            callbacks=[stats_handler],
+            **extra,
+        )
+    except BaseException:
+        if relay_token:
+            from apps.api.routes.relay import get_internal_tokens
+
+            get_internal_tokens().revoke(relay_token)
+        raise
+    if relay_token:
+        # Parked on the graph (like _checkpointer_ctx) so the runner's teardown
+        # can revoke it on every exit path.
+        graph._relay_token = relay_token
     # Mirror TradingAgentsGraph._run_graph's state wiring, since the runner
     # streams graph.graph.stream() directly instead of calling propagate():
     # detect the asset type from the ticker (as the CLI does) and resolve the
@@ -138,10 +190,16 @@ def build_graph_for_request(
         from tradingagents.graph.checkpointer import get_checkpointer
 
         ns = checkpoint_namespace(run_id, user_id)
-        ctx = get_checkpointer(config["data_cache_dir"], ns)
+        ctx = get_checkpointer(config["data_cache_dir"], checkpoint_db_key(ns))
         saver = ctx.__enter__()
+        try:
+            graph.graph = graph.workflow.compile(checkpointer=saver)
+        except BaseException:
+            # Nobody holds the graph yet, so the runner's finally can't close
+            # this — close it here or the SQLite handle leaks on every failure.
+            ctx.__exit__(None, None, None)
+            raise
         graph._checkpointer_ctx = ctx
-        graph.graph = graph.workflow.compile(checkpointer=saver)
         stream_args.setdefault("config", {}).setdefault("configurable", {})["thread_id"] = ns
 
     return graph, init_state, stream_args, stats_handler
