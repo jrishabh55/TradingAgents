@@ -123,6 +123,25 @@ class RelayManager:
 _UPDATE_CHECK_INTERVAL_S = 6 * 3600
 
 
+def _is_newer(latest: str, current: str) -> bool:
+    """True only when the portal ships a STRICTLY newer version.
+
+    Plain inequality burned us: a portal running older code told a newer
+    helper to "update" to a downgrade. Unparseable versions are treated as
+    not-newer — better to miss a banner than to offer a downgrade.
+    """
+    def parse(v: str) -> Optional[tuple[int, ...]]:
+        try:
+            return tuple(int(part) for part in v.split("."))
+        except ValueError:
+            return None
+
+    lp, cp = parse(latest), parse(current)
+    if lp is None or cp is None:
+        return False
+    return lp > cp
+
+
 def _portal_origin(ws_url: str) -> str:
     """``wss://host/api/relay/ws`` -> ``https://host`` (ws:// -> http://)."""
     scheme = "https" if ws_url.startswith("wss://") else "http"
@@ -278,12 +297,10 @@ def create_app(
                 pass
         info = cache["info"] or {}
         latest = info.get("version", "")
-        # ponytail: string inequality, not semver ordering — "different from
-        # what the portal ships" is the actionable fact either way.
         return {
             "current": __version__,
             "latest": latest,
-            "available": bool(latest and latest != __version__),
+            "available": _is_newer(latest, __version__),
             "download_url": info.get("download_url", ""),
         }
 

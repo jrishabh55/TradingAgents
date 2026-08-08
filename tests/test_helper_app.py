@@ -70,8 +70,13 @@ def test_state_reports_login_and_relay_sections(client):
     assert "providers" in body
 
 
-def test_state_reports_autostart_and_update_sections(client):
+def test_state_reports_autostart_and_update_sections(client, tmp_path, monkeypatch):
     from apps.helper.version import __version__
+
+    # Isolate from the developer's real login items — the dev machine may
+    # genuinely have autostart enabled.
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("APPDATA", str(tmp_path))
 
     body = client.get("/ui/api/state", headers=_auth()).json()
     assert body["autostart"] == {"enabled": False}
@@ -109,6 +114,19 @@ def test_autostart_rejects_non_boolean(client):
 
 
 # ---------- update check ----------
+
+
+def test_update_is_offered_only_for_strictly_newer_versions():
+    """A lagging portal must never offer a downgrade (seen live: portal on
+    0.1.1 told a 0.1.3 helper an 'update' was available)."""
+    from apps.helper.server import _is_newer
+
+    assert _is_newer("0.2.0", "0.1.3")
+    assert _is_newer("0.1.10", "0.1.9")  # numeric compare, not lexicographic
+    assert not _is_newer("0.1.1", "0.1.3")
+    assert not _is_newer("0.1.3", "0.1.3")
+    assert not _is_newer("", "0.1.3")
+    assert not _is_newer("not-a-version", "0.1.3")
 
 
 def test_update_offered_when_portal_reports_newer_version(client, monkeypatch):
