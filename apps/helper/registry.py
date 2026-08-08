@@ -57,31 +57,37 @@ class Provider:
     credentials: tuple[CredentialSource, ...]
 
     async def credential(self) -> Credential:
+        """First source that can produce a credential wins.
+
+        A source being unavailable or stale is NOT an error — it just has nothing
+        to offer, so the chain moves on. That is what makes the helper behave
+        identically whether or not any given CLI happens to be installed: a
+        missing `codex login` silently defers to our own OAuth, and vice versa.
+
+        Only when every source has declined do we raise, and the message carries
+        each source's reason plus the first actionable remedy.
+        """
         from apps.helper.credentials import CredentialError
 
         errors: list[str] = []
+        remedies: list[str] = []
         for src in self.credentials:
             check = getattr(src, "available", None)
             if callable(check) and not check():
-                errors.append(f"{src.name}: not configured")
+                errors.append(f"{src.name}: not present")
                 continue
             try:
                 return await src.get()
             except CredentialError as exc:
+                # Remedy captured from the SAME call that failed. An earlier
+                # version re-invoked get() on every source afterwards purely to
+                # harvest this, duplicating work and any network refresh.
                 errors.append(f"{src.name}: {exc.message}")
-        remedy = ""
-        for src in self.credentials:
-            try:
-                await src.get()
-            except CredentialError as exc:
                 if exc.remedy:
-                    remedy = exc.remedy
-                    break
-            except Exception:  # noqa: BLE001
-                continue
+                    remedies.append(exc.remedy)
         raise CredentialError(
             f"no usable credential for provider {self.name!r} ({'; '.join(errors)})",
-            remedy=remedy,
+            remedy=remedies[0] if remedies else "",
         )
 
 
@@ -107,17 +113,19 @@ def default_registry(**overrides: Any) -> Registry:
     Imported lazily so a test can build a registry without pulling httpx or
     touching the filesystem.
     """
-    from apps.helper.credentials.api_key import ApiKeySource
-    from apps.helper.credentials.codex_file import CodexAuthFileSource
+    from apps.helper.credentials.cli_file import codex_cli_source
     from apps.helper.providers.codex import CODEX_QUIRKS, CodexResponsesAdapter
 
     codex = Provider(
         name="codex",
         adapter=overrides.get("codex_adapter") or CodexResponsesAdapter(),
         quirks=CODEX_QUIRKS,
-        # Tier A first: reusing an existing `codex login` is zero-friction.
-        # Tier B (own OAuth) slots in here once U1 is resolved.
-        credentials=(CodexAuthFileSource(),),
+        # Ordered chain, each optional. Reusing an existing `codex login` is
+        # zero-friction when it is there and valid; when it is absent or stale
+        # the chain falls through. Our own OAuth (M3) appends here, and a
+        # Gemini provider appends gemini_cli_source the same way — installation
+        # of any CLI is never load-bearing.
+        credentials=(codex_cli_source(),),
     )
     return Registry([codex])
 
