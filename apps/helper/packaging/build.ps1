@@ -21,7 +21,7 @@ $ErrorActionPreference = "Stop"
 # Dedicated uv-managed venv (native-arch CPython), isolated from the project
 # .venv — same rationale as build.sh.
 $PkgVenv = "build\package-venv"
-uv venv --python 3.12 $PkgVenv
+uv venv --clear --python 3.12 $PkgVenv
 uv pip install --python "$PkgVenv\Scripts\python.exe" `
   pyinstaller -r apps/helper/requirements.txt
 

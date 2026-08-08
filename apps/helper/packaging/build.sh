@@ -16,7 +16,9 @@ set -euo pipefail
 # x86_64 interpreter — which would silently produce an Intel app and macOS
 # "Support Ending for Intel-Based Apps" warnings on Apple silicon.
 PKG_VENV=build/package-venv
-uv venv -q --python 3.12 "$PKG_VENV"
+# --clear: without it uv refuses to reuse an existing venv dir and set -e
+# kills the build — silently shipping whatever stale app was built last.
+uv venv -q --clear --python 3.12 "$PKG_VENV"
 uv pip install -q --python "$PKG_VENV/bin/python" \
   pyinstaller -r apps/helper/requirements.txt
 
