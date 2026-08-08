@@ -36,7 +36,7 @@ from apps.helper.outbound import render_chat_completion
 from apps.helper.registry import CallContext, Registry, default_registry
 from apps.helper.types import BadRequest, HelperError, Unauthorized
 
-logger = logging.getLogger("ta-helper")
+logger = logging.getLogger("drishti-helper")
 
 DEFAULT_PORT = 8899
 
@@ -143,7 +143,7 @@ def create_app(
     token: Optional[str] = None,
     relay_autostart: bool = False,
 ) -> FastAPI:
-    app = FastAPI(title="ta-helper", docs_url=None, redoc_url=None, openapi_url=None)
+    app = FastAPI(title="drishti-helper", docs_url=None, redoc_url=None, openapi_url=None)
     app.state.registry = registry or default_registry()
     # Generated on first run and reused; see paths.ensure_local_token.
     app.state.token = token if token is not None else paths.ensure_local_token()

@@ -11,20 +11,20 @@
 
 [Setup]
 AppId={{7A1B0C7E-4E1F-4B7A-9C39-2D8E5F0A1B3C}
-AppName=TradingAgents Helper
+AppName=Drishti Helper
 AppVersion={#AppVersion}
-DefaultDirName={autopf}\TradingAgents Helper
+DefaultDirName={autopf}\Drishti Helper
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
-OutputBaseFilename=TradingAgentsHelperSetup
+OutputBaseFilename=DrishtiHelperSetup
 Compression=lzma2
 SolidCompression=yes
 
 [Files]
-Source: "..\..\..\dist\TradingAgentsHelper.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\..\dist\DrishtiHelper.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{autoprograms}\TradingAgents Helper"; Filename: "{app}\TradingAgentsHelper.exe"
+Name: "{autoprograms}\Drishti Helper"; Filename: "{app}\DrishtiHelper.exe"
 
 [Run]
-Filename: "{app}\TradingAgentsHelper.exe"; Description: "Launch TradingAgents Helper"; Flags: postinstall nowait skipifsilent
+Filename: "{app}\DrishtiHelper.exe"; Description: "Launch Drishti Helper"; Flags: postinstall nowait skipifsilent

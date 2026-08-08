@@ -35,7 +35,7 @@ def _auth():
 def test_ui_page_is_served_without_auth_and_carries_no_secrets(client):
     r = client.get("/ui")
     assert r.status_code == 200
-    assert "TradingAgents Helper" in r.text
+    assert "Drishti Helper" in r.text
     assert TOKEN not in r.text
 
 

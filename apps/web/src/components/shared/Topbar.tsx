@@ -27,7 +27,7 @@ export function Topbar({
     <div className="es-topbar">
       <Link to="/" className="es-logo no-underline">
         <div className="es-logo-mark">D</div>
-        Drishiti
+        Drishti
       </Link>
       {ticker && (
         <div className="es-crumbs">

@@ -147,7 +147,7 @@ user's subscription. Relevant env on the API side:
 - `TA_HELPER_DOWNLOAD_URL` — download link for the packaged helper app shown
   in the UI. When unset, the API auto-serves a local build: run
   `bash apps/helper/packaging/build.sh` and the resulting
-  `dist/TradingAgentsHelper.zip` is offered at `/api/helper/download`
+  `dist/DrishtiHelper.zip` is offered at `/api/helper/download`
   (unauthenticated — it's a public artifact) and the UI link appears on its
   own. Note the build is for the OS/arch it ran on; multi-platform artifacts
   are a release-pipeline job. `TA_HELPER_DIST_FILE` overrides the file path.

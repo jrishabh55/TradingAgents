@@ -1,4 +1,4 @@
-# ta-helper — implementation plan
+# drishti-helper — implementation plan
 
 A small local daemon presenting an **OpenAI Chat Completions** endpoint on
 `127.0.0.1`, satisfied by whichever subscription the user has. OpenAI/Codex on
@@ -14,7 +14,7 @@ TradingAgents pipeline points at it via `backend_url`; no upstream core edits.
 > departs from the sections below; the code is authoritative:
 >
 > * **Storage** lives in `~/.tradingagents/` (shared with the job store), not
->   `~/.ta-helper/` (§3/§4/§9). No `keyring` — flat 0600 files only.
+>   `~/.drishti-helper/` (§3/§4/§9). No `keyring` — flat 0600 files only.
 > * **Layout** is flat `apps/helper/*.py` reusing the repo venv (deps in
 >   `apps/helper/requirements.txt`), not the `pyproject.toml` + `ta_helper/`
 >   package of §9. Packaging as an installable artifact is still open.
@@ -460,7 +460,7 @@ web page doing `fetch("http://127.0.0.1:8899/...")` — could otherwise spend th
 user's subscription or read account status.
 
 1. **Local bearer token.** 32 bytes from `secrets.token_urlsafe`, generated on
-   first run, stored `0600` at `~/.ta-helper/token`. Required on **every**
+   first run, stored `0600` at `~/.drishti-helper/token`. Required on **every**
    endpoint except `/healthz`. Compared with `secrets.compare_digest`.
    The pipeline passes it as the `api_key` (§5.2) — the field langchain already
    sends as `Authorization: Bearer`, so no new plumbing.
@@ -491,7 +491,7 @@ through; do not refresh in place (rotation could invalidate Codex's copy — U3)
 exchange. Derives `chatgpt_account_id`, `chatgpt_plan_type`,
 `chatgpt_subscription_active_until` from the `id_token`. **Gates on plan** — no
 active subscription refuses to serve *before* a 6-minute run starts. Storage: OS
-keychain (`keyring`), fallback `~/.ta-helper/auth.json` `0600` in a `0700` dir.
+keychain (`keyring`), fallback `~/.drishti-helper/auth.json` `0600` in a `0700` dir.
 Colocated with its provider package (§1.2), because grant parameters, token
 shape and entitlement claims are provider-specific rather than parameters.
 

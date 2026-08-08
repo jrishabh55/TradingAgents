@@ -1,4 +1,4 @@
-"""Tests for the ta-helper translation core (apps/helper/).
+"""Tests for the drishti-helper translation core (apps/helper/).
 
 No network. The Codex wire contract these assert against was measured in M0 —
 see docs/TA_HELPER_PLAN.md §0 and §8.1.

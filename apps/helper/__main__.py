@@ -1,4 +1,4 @@
-"""ta-helper CLI: ``serve``, ``login``, ``status``, ``logout``.
+"""drishti-helper CLI: ``serve``, ``login``, ``status``, ``logout``.
 
     python -m apps.helper serve
     python -m apps.helper login
@@ -219,7 +219,7 @@ def _app(args: argparse.Namespace) -> int:
             print(f"helper already running on port {args.port}; nothing to do")
             return 0
         if webview is not None:
-            webview.create_window("TradingAgents Helper", url, width=680, height=780)
+            webview.create_window("Drishti Helper", url, width=680, height=780)
             webview.start()
         else:
             import webbrowser
@@ -230,7 +230,7 @@ def _app(args: argparse.Namespace) -> int:
     app = create_app(token=token, relay_autostart=True)
 
     if webview is None or args.no_browser:
-        print(f"TradingAgents Helper — control page: {url}")
+        print(f"Drishti Helper — control page: {url}")
         if not args.no_browser:
             import webbrowser
 
@@ -249,7 +249,7 @@ def _app(args: argparse.Namespace) -> int:
     while not server.started and time.monotonic() < deadline:
         time.sleep(0.05)
 
-    webview.create_window("TradingAgents Helper", url, width=680, height=780)
+    webview.create_window("Drishti Helper", url, width=680, height=780)
     webview.start()  # blocks until the window is closed
     server.should_exit = True
     return 0

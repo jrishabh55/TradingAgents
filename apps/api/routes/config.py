@@ -149,15 +149,15 @@ def _helper_dist_file(user_agent: str = "") -> "Path":
         or Path(__file__).resolve().parents[3] / "dist"
     )
     if "windows" in user_agent.lower():
-        names = ["TradingAgentsHelperSetup.exe", "TradingAgentsHelper-windows.zip"]
+        names = ["DrishtiHelperSetup.exe", "DrishtiHelper-windows.zip"]
     else:
-        names = ["TradingAgentsHelper.dmg"]
-    names.append("TradingAgentsHelper.zip")  # generic fallback
+        names = ["DrishtiHelper.dmg"]
+    names.append("DrishtiHelper.zip")  # generic fallback
     for name in names:
         f = dist / name
         if f.is_file():
             return f
-    return dist / "TradingAgentsHelper.zip"
+    return dist / "DrishtiHelper.zip"
 
 
 @router.get("/helper/download")

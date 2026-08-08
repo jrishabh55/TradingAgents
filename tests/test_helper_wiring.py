@@ -123,7 +123,7 @@ def test_download_serves_the_built_artifact(tmp_path, monkeypatch):
 
     from apps.api.routes.config import router
 
-    artifact = tmp_path / "TradingAgentsHelper.zip"
+    artifact = tmp_path / "DrishtiHelper.zip"
     artifact.write_bytes(b"PK\x03\x04fake-zip")
     monkeypatch.setenv("TA_HELPER_DIST_FILE", str(artifact))
 
@@ -133,7 +133,7 @@ def test_download_serves_the_built_artifact(tmp_path, monkeypatch):
         r = c.get("/api/helper/download")
     assert r.status_code == 200
     assert r.content.startswith(b"PK")
-    assert "TradingAgentsHelper.zip" in r.headers.get("content-disposition", "")
+    assert "DrishtiHelper.zip" in r.headers.get("content-disposition", "")
 
 
 def test_download_404s_with_the_fix_when_no_build_exists(tmp_path, monkeypatch):
@@ -158,20 +158,20 @@ def test_download_picks_the_artifact_for_the_requesting_os(tmp_path, monkeypatch
 
     monkeypatch.delenv("TA_HELPER_DIST_FILE", raising=False)
     monkeypatch.setenv("TA_HELPER_DIST_DIR", str(tmp_path))
-    for name in ("TradingAgentsHelperSetup.exe", "TradingAgentsHelper.dmg",
-                 "TradingAgentsHelper.zip"):
+    for name in ("DrishtiHelperSetup.exe", "DrishtiHelper.dmg",
+                 "DrishtiHelper.zip"):
         (tmp_path / name).write_bytes(b"x")
 
     win_ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
     mac_ua = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
-    assert _helper_dist_file(win_ua).name == "TradingAgentsHelperSetup.exe"
-    assert _helper_dist_file(mac_ua).name == "TradingAgentsHelper.dmg"
-    assert _helper_dist_file("").name == "TradingAgentsHelper.dmg"
+    assert _helper_dist_file(win_ua).name == "DrishtiHelperSetup.exe"
+    assert _helper_dist_file(mac_ua).name == "DrishtiHelper.dmg"
+    assert _helper_dist_file("").name == "DrishtiHelper.dmg"
 
-    (tmp_path / "TradingAgentsHelperSetup.exe").unlink()
-    (tmp_path / "TradingAgentsHelper.dmg").unlink()
-    assert _helper_dist_file(win_ua).name == "TradingAgentsHelper.zip"
-    assert _helper_dist_file(mac_ua).name == "TradingAgentsHelper.zip"
+    (tmp_path / "DrishtiHelperSetup.exe").unlink()
+    (tmp_path / "DrishtiHelper.dmg").unlink()
+    assert _helper_dist_file(win_ua).name == "DrishtiHelper.zip"
+    assert _helper_dist_file(mac_ua).name == "DrishtiHelper.zip"
 
 
 def test_status_advertises_the_download_when_a_build_exists(tmp_path, monkeypatch, without_helper):
@@ -184,7 +184,7 @@ def test_status_advertises_the_download_when_a_build_exists(tmp_path, monkeypatc
     from apps.api.routes.config import router
 
     reset_relay_registry_for_tests()
-    artifact = tmp_path / "TradingAgentsHelper.zip"
+    artifact = tmp_path / "DrishtiHelper.zip"
     artifact.write_bytes(b"PK")
     monkeypatch.setenv("TA_HELPER_DIST_FILE", str(artifact))
     monkeypatch.delenv("TA_HELPER_DOWNLOAD_URL", raising=False)

@@ -22,7 +22,7 @@ from apps.helper.outbound import render_chat_completion
 from apps.helper.registry import CallContext, Registry, default_registry
 from apps.helper.types import HelperError
 
-logger = logging.getLogger("ta-helper.relay")
+logger = logging.getLogger("drishti-helper.relay")
 
 #: Reconnect backoff. Capped so a laptop that slept for hours still comes back
 #: promptly rather than waiting out an ever-doubling delay.

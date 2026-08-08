@@ -18,7 +18,7 @@ import os
 import sys
 from pathlib import Path
 
-_LABEL = "com.tradingagents.helper"
+_LABEL = "com.drishti.helper"
 
 
 def _repo_root() -> Path:
@@ -37,8 +37,8 @@ def _target() -> Path:
     if os.name == "nt":
         return (Path(os.environ.get("APPDATA", str(Path.home()))) / "Microsoft"
                 / "Windows" / "Start Menu" / "Programs" / "Startup"
-                / "TradingAgentsHelper.cmd")
-    return Path.home() / ".config" / "autostart" / "tradingagents-helper.desktop"
+                / "DrishtiHelper.cmd")
+    return Path.home() / ".config" / "autostart" / "drishti-helper.desktop"
 
 
 def enabled() -> bool:
@@ -69,7 +69,7 @@ def enable() -> None:
         target.write_text("\n".join(lines) + "\n")
     else:
         exec_line = " ".join(cmd)
-        body = "[Desktop Entry]\nType=Application\nName=TradingAgents Helper\n"
+        body = "[Desktop Entry]\nType=Application\nName=Drishti Helper\n"
         if not frozen:
             body += f"Path={_repo_root()}\n"
         target.write_text(body + f"Exec={exec_line}\n")

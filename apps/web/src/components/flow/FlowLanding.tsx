@@ -675,13 +675,13 @@ export function HelperSetup({ status }: { status: HelperStatus | null }) {
         Local helper not connected
       </div>
       <div style={{ color: 'var(--text-3)' }}>
-        This provider runs through the TradingAgents Helper app on your
+        This provider runs through the Drishti Helper app on your
         machine. Three steps:
       </div>
 
       <div style={{ display: 'grid', gap: 6 }}>
         <div style={{ fontWeight: 500, color: 'var(--text-2)' }}>
-          1. Download and open the TradingAgents Helper app
+          1. Download and open the Drishti Helper app
         </div>
         {status.download_url ? (
           <a

@@ -1,4 +1,4 @@
-"""Point the pipeline at ta-helper without touching upstream.
+"""Point the pipeline at drishti-helper without touching upstream.
 
 Two problems to solve, both from the Codex review:
 
