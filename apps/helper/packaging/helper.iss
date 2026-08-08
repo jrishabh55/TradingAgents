@@ -21,7 +21,8 @@ Compression=lzma2
 SolidCompression=yes
 
 [Files]
-Source: "..\..\..\dist\DrishtiHelper.exe"; DestDir: "{app}"; Flags: ignoreversion
+; The whole onedir folder — exe + pre-extracted runtime (fast launches).
+Source: "..\..\..\dist\DrishtiHelper\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{autoprograms}\Drishti Helper"; Filename: "{app}\DrishtiHelper.exe"

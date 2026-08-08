@@ -3,11 +3,15 @@
 #   powershell -ExecutionPolicy Bypass -File apps\helper\packaging\build.ps1
 #
 # Output:
-#   dist\DrishtiHelper.exe          portable, double-clickable
+#   dist\DrishtiHelper\             onedir app folder (DrishtiHelper.exe inside)
 #   dist\DrishtiHelperSetup.exe     installer (only if Inno Setup's iscc
-#                                         is on PATH: winget install JRSoftware.InnoSetup)
-#   dist\DrishtiHelper-windows.zip  the portable exe, zipped for the
-#                                         /api/helper/download endpoint
+#                                   is on PATH: winget install JRSoftware.InnoSetup)
+#   dist\DrishtiHelper-windows.zip  the app folder, zipped, for the
+#                                   /api/helper/download endpoint
+#
+# --onedir, NOT --onefile: onefile re-extracts the Python runtime to %TEMP%
+# on every launch (seconds of dead time before any window). The installer
+# ships the folder pre-extracted, so the app opens near-instantly.
 #
 # Runtime note: pywebview uses the WebView2 runtime, preinstalled on Win 11
 # and current Win 10. Signing (signtool + a code-signing cert) is a
@@ -18,7 +22,7 @@ uv pip install pyinstaller -r apps/helper/requirements.txt
 
 # --add-data uses ";" as the src;dest separator on Windows (":" on POSIX).
 uv run pyinstaller `
-  --onefile `
+  --onedir `
   --windowed `
   --name DrishtiHelper `
   --paths . `
@@ -41,6 +45,6 @@ if ($iscc) {
   Write-Host "Inno Setup (iscc) not on PATH - skipped the installer, portable exe only."
 }
 
-Compress-Archive -Force -Path dist\DrishtiHelper.exe `
+Compress-Archive -Force -Path dist\DrishtiHelper `
   -DestinationPath dist\DrishtiHelper-windows.zip
-Write-Host "built: dist\DrishtiHelper.exe (+ -windows.zip for the download endpoint)"
+Write-Host "built: dist\DrishtiHelper\ (+ -windows.zip for the download endpoint)"

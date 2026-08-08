@@ -240,17 +240,43 @@ def _app(args: argparse.Namespace) -> int:
         return 0
 
     # Native-window mode: uvicorn in a daemon thread, webview owns the main
-    # thread (pywebview requires it on macOS).
+    # thread (pywebview requires it on macOS). The window opens IMMEDIATELY
+    # on a local loader page and navigates to the real UI once the server is
+    # up — the user never stares at nothing while services boot.
     server = uvicorn.Server(
         uvicorn.Config(app, host="127.0.0.1", port=args.port, log_level="warning")
     )
     threading.Thread(target=server.run, daemon=True).start()
-    deadline = time.monotonic() + 10
-    while not server.started and time.monotonic() < deadline:
-        time.sleep(0.05)
 
-    webview.create_window("Drishti Helper", url, width=680, height=780)
-    webview.start()  # blocks until the window is closed
+    loader = """<!doctype html><html><body style="margin:0;background:#0d1117;
+      color:#8b949e;font:14px/1.5 -apple-system,'Segoe UI',sans-serif;display:flex;
+      align-items:center;justify-content:center;height:100vh">
+      <div style="text-align:center">
+        <div style="width:28px;height:28px;border:3px solid #30363d;
+          border-top-color:#3fb950;border-radius:50%;margin:0 auto 14px;
+          animation:s 1s linear infinite"></div>
+        Starting Drishti Helper…
+        <style>@keyframes s{to{transform:rotate(360deg)}}</style>
+      </div></body></html>"""
+
+    window = webview.create_window("Drishti Helper", html=loader, width=680, height=780)
+
+    def _navigate() -> None:  # runs in a webview worker thread post-show
+        deadline = time.monotonic() + 30
+        while not server.started and time.monotonic() < deadline:
+            time.sleep(0.05)
+        if server.started:
+            window.load_url(url)
+        else:
+            window.load_html(
+                "<body style='background:#0d1117;color:#f85149;"
+                "font:14px sans-serif;padding:40px'>"
+                "The local service failed to start. Quit and reopen the app; "
+                "if it persists, check that nothing else uses port "
+                f"{args.port}.</body>"
+            )
+
+    webview.start(_navigate)  # blocks until the window is closed
     server.should_exit = True
     return 0
 
