@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { api, noMarketDataDetail } from '#/lib/api'
+import { ratingTooltip } from '#/lib/rating'
 import type {
   ConfigResponse,
+  HelperStatus,
+  PairResponse,
   RunRequest,
   RunSummary,
 } from '#/lib/types'
@@ -64,6 +67,9 @@ export function FlowLanding() {
   /* Symbols the backend verified DO have data, when the submitted one didn't.
      Offered as one-tap fixes (NSEI → ^NSEI). */
   const [tickerSuggestions, setTickerSuggestions] = useState<string[]>([])
+  /* Fetched once when a `requires_helper` provider is selected; null while
+     no such provider is active (or the fetch is in flight). */
+  const [helperStatus, setHelperStatus] = useState<HelperStatus | null>(null)
 
   const today = useMemo(() => new Date().toISOString().slice(0, 10), [])
   const [form, setForm] = useState<FlowState>({
@@ -83,8 +89,14 @@ export function FlowLanding() {
       .config()
       .then((c) => {
         setConfig(c)
+        /* The helper-backed provider is always listed first, even with no
+           helper installed — default to the first provider that works
+           without one, and only auto-select the helper below once the
+           probe confirms it is actually connected. */
+        const fallback =
+          c.providers.find((p) => !p.requires_helper) ?? c.providers[0]
         setForm((f) => {
-          const provider = c.providers[0]?.key ?? f.provider
+          const provider = fallback?.key ?? f.provider
           const models = c.models_by_provider[provider] ?? []
           return {
             ...f,
@@ -95,6 +107,29 @@ export function FlowLanding() {
               f.deepThinker || models[1]?.id || models[0]?.id || '',
           }
         })
+        const helper = c.providers.find((p) => p.requires_helper)
+        if (!helper) return
+        api
+          .getHelperStatus()
+          .then((s) => {
+            if (!s.connected) return
+            /* Zero-config path: the user's helper is already linked, so make
+               it the active provider — unless they changed providers while
+               the probe was in flight. */
+            setForm((f) => {
+              if (f.provider !== fallback?.key) return f
+              const ms = c.models_by_provider[helper.key] ?? []
+              return {
+                ...f,
+                provider: helper.key,
+                shallowThinker: ms[0]?.id ?? '',
+                deepThinker: ms[1]?.id ?? ms[0]?.id ?? '',
+              }
+            })
+          })
+          .catch(() => {
+            /* ignored — auto-select is best-effort */
+          })
       })
       .catch((e: Error) => setError(`Backend unreachable: ${e.message}`))
 
@@ -105,6 +140,51 @@ export function FlowLanding() {
         /* ignored — recents are best-effort */
       })
   }, [])
+
+  const selectedProvider = config?.providers.find(
+    (p) => p.key === form.provider,
+  )
+
+  /* A helper-backed provider with no reachable helper would start a run that
+     is guaranteed to fail deep in the pipeline — block submission until the
+     probe confirms it (null = probe still in flight, also blocked). */
+  const helperBlocked =
+    !!selectedProvider?.requires_helper && helperStatus?.connected !== true
+
+  /* Check helper reachability when a helper-backed provider is selected,
+     then re-probe every 3s until it connects — the setup card's "waiting"
+     line goes live and the `helperBlocked` gate opens without a refresh.
+     An unreachable endpoint reads the same as a stopped helper. */
+  useEffect(() => {
+    setHelperStatus(null)
+    if (!selectedProvider?.requires_helper) return
+    let stale = false
+    let timer: ReturnType<typeof setInterval> | undefined
+    const probe = () => {
+      api
+        .getHelperStatus()
+        .then((s) => {
+          if (stale) return
+          setHelperStatus(s)
+          if (s.connected && timer !== undefined) clearInterval(timer)
+        })
+        .catch(() => {
+          if (!stale)
+            setHelperStatus({
+              enabled: false,
+              mode: null,
+              connected: false,
+              download_url: '',
+            })
+        })
+    }
+    probe()
+    timer = setInterval(probe, 3000)
+    return () => {
+      stale = true
+      clearInterval(timer)
+    }
+  }, [selectedProvider?.requires_helper, form.provider])
 
   function patch(p: Partial<FlowState>) {
     setForm((f) => ({ ...f, ...p }))
@@ -120,7 +200,7 @@ export function FlowLanding() {
   }
 
   async function startRun(tickerOverride?: string) {
-    if (!config) return
+    if (!config || helperBlocked) return
     setSubmitting(true)
     setError(null)
     setTickerSuggestions([])
@@ -193,6 +273,7 @@ export function FlowLanding() {
           toggleAnalyst={toggleAnalyst}
           config={config}
           submitting={submitting}
+          helperStatus={helperStatus}
           onClose={() => setShowAdvanced(false)}
           /* Same reason as the button below — FlowAdvanced wires this straight
              to onClick, so an unwrapped startRun would receive the event. */
@@ -294,7 +375,7 @@ export function FlowLanding() {
                   /* Wrapped, not passed directly: React would hand the
                      MouseEvent to startRun's tickerOverride parameter. */
                   onClick={() => startRun()}
-                  disabled={submitting || form.analysts.length === 0}
+                  disabled={submitting || helperBlocked || form.analysts.length === 0}
                 >
                   {submitting ? 'Starting…' : 'Start analysis →'}
                 </button>
@@ -394,6 +475,18 @@ export function FlowLanding() {
                 + Advanced
               </button>
             </div>
+
+            {selectedProvider?.requires_helper && helperStatus && (
+              <div
+                style={{
+                  marginTop: 12,
+                  display: 'flex',
+                  justifyContent: 'center',
+                }}
+              >
+                <HelperSetup status={helperStatus} />
+              </div>
+            )}
 
             {error && (
               <div
@@ -495,8 +588,15 @@ export function FlowLanding() {
                           {r.analysis_date}
                         </div>
                         <span
-                          className={`es-pill ${finished ? verdictCls : 'run'}`}
+                          className={`es-pill ${
+                            finished
+                              ? verdictCls
+                              : r.status === 'interrupted'
+                                ? 'warn'
+                                : 'run'
+                          }`}
                           style={{ fontSize: 11 }}
+                          title={finished ? ratingTooltip(r.rating) : undefined}
                         >
                           {finished
                             ? r.rating || r.status
@@ -514,6 +614,219 @@ export function FlowLanding() {
         </div>
       )}
     </div>
+  )
+}
+
+/** Helper reachability + onboarding, shown when the selected provider has
+ *  `requires_helper`. Connected → subtle confirmation; otherwise a compact
+ *  setup card walking through install → pair → wait. Shared by the compact
+ *  landing and FlowAdvanced. Polling stays with FlowLanding — this only
+ *  renders whatever `status` it is handed; the pair-button state is local. */
+export function HelperSetup({ status }: { status: HelperStatus | null }) {
+  const [pair, setPair] = useState<PairResponse | null>(null)
+  const [pairing, setPairing] = useState(false)
+  const [pairError, setPairError] = useState<string | null>(null)
+  const [copied, setCopied] = useState<string | null>(null)
+
+  if (!status) return null
+  if (status.connected) {
+    return (
+      <div style={{ fontSize: 11.5, color: 'var(--ok)' }}>
+        Helper connected{status.mode ? ` · ${status.mode}` : ''}
+      </div>
+    )
+  }
+
+  async function generateCode() {
+    setPairing(true)
+    setPairError(null)
+    try {
+      setPair(await api.pairHelper())
+    } catch (e: unknown) {
+      setPairError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setPairing(false)
+    }
+  }
+
+  function copyValue(key: string, text: string) {
+    void navigator.clipboard.writeText(text).then(() => {
+      setCopied(key)
+      setTimeout(() => setCopied(null), 1500)
+    })
+  }
+
+  return (
+    <div
+      style={{
+        width: '100%',
+        maxWidth: 560,
+        textAlign: 'left',
+        background: 'var(--bg-1)',
+        border: '1px solid rgba(251,146,60,0.35)',
+        borderRadius: 12,
+        padding: '14px 16px',
+        display: 'grid',
+        gap: 10,
+        fontSize: 12,
+      }}
+    >
+      <div style={{ fontSize: 12.5, fontWeight: 600, color: '#fb923c' }}>
+        Local helper not connected
+      </div>
+      <div style={{ color: 'var(--text-3)' }}>
+        This provider runs through the Drishti Helper app on your
+        machine. Three steps:
+      </div>
+
+      <div style={{ display: 'grid', gap: 6 }}>
+        <div style={{ fontWeight: 500, color: 'var(--text-2)' }}>
+          1. Download and open the Drishti Helper app
+        </div>
+        {status.download_url ? (
+          <a
+            className="es-btn sm"
+            style={{ justifySelf: 'start', textDecoration: 'none' }}
+            href={status.download_url}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Download the helper ↗
+          </a>
+        ) : (
+          <div style={{ fontSize: 11, color: 'var(--text-3)' }}>
+            Ask your administrator for the helper app download.
+          </div>
+        )}
+        <details>
+          <summary
+            style={{ fontSize: 11, color: 'var(--text-3)', cursor: 'pointer' }}
+          >
+            Developer setup (run from source)
+          </summary>
+          <div style={{ marginTop: 6 }}>
+            <CodeBlock
+              text={
+                'uv pip install -r apps/helper/requirements.txt\npython -m apps.helper login'
+              }
+            />
+          </div>
+        </details>
+      </div>
+
+      <div style={{ display: 'grid', gap: 6 }}>
+        <div style={{ fontWeight: 500, color: 'var(--text-2)' }}>
+          2. Generate a connect code
+        </div>
+        {pair ? (
+          <>
+            <div style={{ fontSize: 11, color: 'var(--text-3)' }}>
+              Portal address
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+              <CodeBlock text={pair.ws_url} />
+              <button
+                className="es-btn sm"
+                onClick={() => copyValue('ws_url', pair.ws_url)}
+              >
+                {copied === 'ws_url' ? 'Copied' : 'Copy'}
+              </button>
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-3)' }}>
+              Connect code
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+              <CodeBlock text={pair.token} />
+              <button
+                className="es-btn sm"
+                onClick={() => copyValue('token', pair.token)}
+              >
+                {copied === 'token' ? 'Copied' : 'Copy'}
+              </button>
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-3)' }}>
+              Keep this code private — it lets a machine run analyses as you.
+            </div>
+            <details>
+              <summary
+                style={{
+                  fontSize: 11,
+                  color: 'var(--text-3)',
+                  cursor: 'pointer',
+                }}
+              >
+                Or connect from a terminal
+              </summary>
+              <div
+                style={{
+                  display: 'flex',
+                  gap: 8,
+                  alignItems: 'flex-start',
+                  marginTop: 6,
+                }}
+              >
+                <CodeBlock text={pair.command} />
+                <button
+                  className="es-btn sm"
+                  onClick={() => copyValue('command', pair.command)}
+                >
+                  {copied === 'command' ? 'Copied' : 'Copy'}
+                </button>
+              </div>
+            </details>
+          </>
+        ) : (
+          <button
+            className="es-btn sm"
+            style={{ justifySelf: 'start' }}
+            onClick={() => void generateCode()}
+            disabled={pairing}
+          >
+            {pairing ? 'Generating…' : 'Generate connect code'}
+          </button>
+        )}
+        {pairError && (
+          <div style={{ fontSize: 11.5, color: 'var(--err)' }}>{pairError}</div>
+        )}
+      </div>
+
+      <div style={{ display: 'grid', gap: 6 }}>
+        <div style={{ fontWeight: 500, color: 'var(--text-2)' }}>
+          3. Paste both into the helper app
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--text-3)' }}>
+          Paste both into the helper app's "Web portal connection" section —
+          this page will update automatically.
+        </div>
+      </div>
+
+      <div style={{ fontSize: 11.5, color: '#fb923c' }}>
+        ● Waiting for your helper to connect… this updates automatically.
+      </div>
+    </div>
+  )
+}
+
+function CodeBlock({ text }: { text: string }) {
+  return (
+    <pre
+      className="es-mono"
+      style={{
+        flex: 1,
+        margin: 0,
+        padding: '8px 10px',
+        background: 'var(--bg-2)',
+        border: '1px solid var(--line-1)',
+        borderRadius: 8,
+        fontSize: 11,
+        lineHeight: 1.6,
+        whiteSpace: 'pre-wrap',
+        wordBreak: 'break-all',
+        color: 'var(--text-2)',
+      }}
+    >
+      {text}
+    </pre>
   )
 }
 

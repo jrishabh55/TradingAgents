@@ -48,10 +48,21 @@ class ChunkTranslator:
     it after the loop ends without re-walking the trace.
     """
 
-    def __init__(self, run_id: str, *, selected_analysts: List[str]) -> None:
+    def __init__(
+        self,
+        run_id: str,
+        *,
+        selected_analysts: List[str],
+        start_seq: int = 0,
+        replay_state: Optional[Dict[str, Any]] = None,
+    ) -> None:
         self.run_id = run_id
         self.selected_analysts = [a for a in ANALYST_ORDER if a in selected_analysts]
-        self._seq = 0
+        # On resume this is seeded from the store. A fresh translator restarting
+        # at 0 would collide with the events already persisted for this run,
+        # violating the UNIQUE(run_id, seq) constraint and corrupting replay
+        # ordering for any client reconnecting to the stream.
+        self._seq = start_seq
         self._processed_message_ids: Set[str] = set()
         # Track which agents we've already announced as completed/started so we
         # don't emit duplicate transition events on every chunk.
@@ -67,7 +78,49 @@ class ChunkTranslator:
         # Accumulating fragment lengths so we can publish only the new chars.
         self._debate_lengths: Dict[str, int] = {}
         # Accumulated final state — last-write-wins for each top-level key.
-        self.final_state: Dict[str, Any] = {}
+        # Seeded on resume from the snapshot the interrupted attempt persisted,
+        # so sections it already produced are treated as known rather than
+        # re-emitted as if new.
+        self.final_state: Dict[str, Any] = dict(replay_state or {})
+        # Mark analysts whose report already exists as completed, so a resume
+        # does not re-announce started/completed for work that is done.
+        for analyst_key, report_key in ANALYST_REPORT_MAP.items():
+            if self.final_state.get(report_key):
+                self._analyst_completed.add(analyst_key)
+                self._announced_started.add(analyst_key)
+        # Same for the debate machinery: without seeding the accumulated
+        # fragment lengths and team flags, the first post-resume chunk (values
+        # mode carries the FULL state) would re-emit every debate turn and
+        # team transition the interrupted attempt already streamed.
+        inv = self.final_state.get("investment_debate_state") or {}
+        risk = self.final_state.get("risk_debate_state") or {}
+        for key, text in (
+            ("investment.bull", inv.get("bull_history")),
+            ("investment.bear", inv.get("bear_history")),
+            ("risk.aggressive", risk.get("aggressive_history")),
+            ("risk.conservative", risk.get("conservative_history")),
+            ("risk.neutral", risk.get("neutral_history")),
+        ):
+            if text:
+                self._debate_lengths[key] = len(str(text).strip())
+        if inv.get("bull_history") or inv.get("bear_history"):
+            self._research_team_started = True
+        if inv.get("judge_decision"):
+            self._research_team_completed = True
+        if self.final_state.get("trader_investment_plan"):
+            self._trader_started = True
+            self._trader_completed = True
+        if any(
+            risk.get(k)
+            for k in ("aggressive_history", "conservative_history", "neutral_history")
+        ):
+            self._risk_started.add("risk")
+        if risk.get("judge_decision"):
+            self._portfolio_completed = True
+        # Not seeded: _processed_message_ids — event payloads don't persist
+        # message ids, so raw message/tool.called events from before the
+        # interruption may re-emit once. Cosmetic (ticker panel only); every
+        # report/debate/transition event above is properly deduplicated.
 
     # ---------- public ----------
 

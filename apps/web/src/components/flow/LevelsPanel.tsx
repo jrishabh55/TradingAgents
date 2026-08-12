@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '#/lib/api'
+import { ratingTooltip } from '#/lib/rating'
 import type { LevelValue, LevelsResponse } from '#/lib/types'
 
 /* Debounce so dragging through capital digits doesn't fire a request per
@@ -258,7 +259,11 @@ export function LevelsPanel({ runId }: { runId: string }) {
               <span className="es-dot" />
               {data.viable ? 'Setup meets the rules' : 'Rules say skip'}
             </span>
-            {data.rating && <span className="es-pill accent">{data.rating}</span>}
+            {data.rating && (
+              <span className="es-pill accent" title={ratingTooltip(data.rating)}>
+                {data.rating}
+              </span>
+            )}
             {levels && (
               <span className="es-pill">
                 R:R {levels.reward_risk_ratio.toFixed(2)}:1

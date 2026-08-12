@@ -1,5 +1,6 @@
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { ratingTooltip } from '#/lib/rating'
 import { StreamingMarkdown } from './StreamingMarkdown'
 
 export interface ReportBodyProps {
@@ -63,7 +64,11 @@ export function ReportBody({
           }}
         >
           {ticker && <h1>{ticker}</h1>}
-          {rating && <span className="es-pill accent">{rating}</span>}
+          {rating && (
+            <span className="es-pill accent" title={ratingTooltip(rating)}>
+              {rating}
+            </span>
+          )}
         </div>
       )}
       {streaming ? (

@@ -7,6 +7,7 @@ Routes:
   POST /api/runs/{run_id}/cancel       request cooperative cancel
   GET  /api/runs/{run_id}/report.md    download as markdown
   GET  /api/runs/{run_id}/levels       computed stop / target / position size
+  POST /api/runs/{run_id}/resume       continue an interrupted run
 """
 from __future__ import annotations
 
@@ -18,7 +19,8 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import StreamingResponse
 
-from apps.api.auth import current_user_id
+from apps.api import clerk_users
+from apps.api.auth import ANONYMOUS_USER_ID, SHARED_BEARER_USER_ID, current_user_id
 from apps.api.jobs.markdown import render_markdown_report
 from apps.api.jobs.runner import get_runner
 from apps.api.jobs.store import get_store
@@ -110,6 +112,21 @@ def create_run(
             response.status_code = status.HTTP_200_OK
             return cached
 
+    # A helper-backed run with no helper anywhere (no live loopback on this
+    # host, this user's helper not on the relay) is guaranteed to fail deep in
+    # the pipeline — reject it here with the fix instead. AFTER the cache
+    # lookup on purpose: a cached answer needs no helper.
+    from apps.api.integrations.helper_backend import helper_ready, is_helper_provider
+
+    if is_helper_provider(request.llm_provider) and not helper_ready(user_id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "your helper is not connected — open the helper app on your "
+                "machine (or install it first), then retry"
+            ),
+        )
+
     # Resolve prices before spending anything. Runs after the cache lookup so a
     # cache hit stays instant, and before the active-run guard so a typo can't
     # occupy the per-user ticker slot. On success this warms the OHLCV cache the
@@ -140,6 +157,33 @@ def create_run(
             detail=f"A run for {request.ticker} is already queued or running for this user. "
                    "Wait for it to finish before starting another.",
         )
+
+    # Credits: 1 per fresh pipeline run, debited last on purpose — cache hits,
+    # validation failures, helper 409s, and preflight rejections above never
+    # cost anything. Resume stays free (it's failure recovery, already capped
+    # by MAX_RESUMES). Synthetic users (legacy bearer / open mode) have no
+    # Clerk record, so the gate only applies to real Clerk users.
+    if clerk_users.enabled() and user_id not in (ANONYMOUS_USER_ID, SHARED_BEARER_USER_ID):
+        try:
+            remaining = clerk_users.debit_credit(user_id)
+        except HTTPException:
+            raise
+        except Exception:
+            # Clerk API unreachable: fail closed on spend, but as a retriable
+            # 503 rather than a misleading "out of credits".
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="credit check unavailable, try again shortly",
+            )
+        if remaining is None:
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail={
+                    "code": "insufficient_credits",
+                    "message": "You're out of credits — ask the admin for a top-up.",
+                    "credits": 0,
+                },
+            )
 
     run_id = store.create_run(
         ticker=request.ticker,
@@ -219,6 +263,68 @@ def download_report(
         media_type="text/markdown; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.post("/runs/{run_id}/resume", response_model=RunDetail)
+def resume_run(
+    run_id: str,
+    user_id: str = Depends(current_user_id),
+) -> RunDetail:
+    """Continue an interrupted run from its last completed node.
+
+    Only ``interrupted`` runs are resumable — a failed run errored and would
+    error again, and a completed one has nothing to do. The claim is an atomic
+    ``interrupted -> running`` UPDATE, so two concurrent resume requests cannot
+    both start the graph against the same checkpoint.
+    """
+    store = get_store()
+    detail = store.get_run(run_id)
+    if detail is None or not _user_owns(detail, user_id):
+        raise HTTPException(status_code=404, detail="run not found")
+    if detail.status != "interrupted":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"run is {detail.status}; only interrupted runs can be resumed",
+        )
+    if store.get_checkpoint_context(run_id) is None:
+        # Without a checkpoint there is nothing to continue from; resuming would
+        # silently restart the whole pipeline and bill for it again.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "this run has no checkpoint, so it cannot be resumed — it was "
+                "started with checkpoint_enabled=false. Start a new run instead."
+            ),
+        )
+
+    # Check helper availability BEFORE consuming the atomic claim: a claim that
+    # then fails graph construction marks the run `failed` permanently, turning
+    # a transiently-disconnected helper into a lost run.
+    from apps.api.integrations.helper_backend import helper_ready, is_helper_provider
+
+    if is_helper_provider(detail.config.get("llm_provider", "")) and not helper_ready(user_id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "your helper is not connected — open the helper app on your "
+                "machine, wait for it to connect, then resume"
+            ),
+        )
+
+    if not store.claim_for_resume(run_id, user_id=user_id):
+        # Either someone else won the race between our status read and the
+        # claim, or the run has hit the resume cap (each resume re-bills the
+        # LLM calls after the last checkpoint, so poison runs must not loop).
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="run is already being resumed, or has been resumed too many times",
+        )
+
+    request = RunRequest(**detail.config)
+    get_runner().submit(run_id, request, user_id=user_id, resume=True)
+
+    resumed = store.get_run(run_id)
+    return resumed if resumed is not None else detail
 
 
 @router.get("/runs/{run_id}/levels", response_model=LevelsResponse)

@@ -29,6 +29,7 @@ from fastapi.staticfiles import StaticFiles
 
 from apps.api.auth import auth_middleware, get_verifier
 from apps.api.routes.config import router as config_router
+from apps.api.routes.relay import router as relay_router
 from apps.api.routes.runs import router as runs_router
 from apps.api.routes.stream import router as stream_router
 from apps.api.jobs.bus import get_bus
@@ -50,7 +51,14 @@ def create_app() -> FastAPI:
     async def lifespan(app: FastAPI):
         # Initialise singletons. Doing this in the lifespan (not at import time)
         # keeps unit tests in control of WEBAPP_DB_PATH overrides.
-        get_store()
+        store = get_store()
+        # Any run still queued or running belongs to a process that no longer
+        # exists. Sweep BOTH states: a queued row's future died with the previous
+        # executor just as surely as a running one, and leaving it queued means it
+        # is never picked up and never explained to the user.
+        swept = store.sweep_orphaned_runs()
+        if swept:
+            logger.info("marked %d orphaned run(s) as interrupted", swept)
         bus = get_bus()
         bus.attach_loop(asyncio.get_running_loop())
         get_runner()
@@ -83,6 +91,15 @@ def create_app() -> FastAPI:
     app.middleware("http")(auth_middleware)
     if get_verifier() is not None:
         logger.info("Clerk auth enabled (CLERK_JWKS_URL configured)")
+        from apps.api import clerk_users
+
+        if clerk_users.enabled():
+            logger.info("Activation + credits gate enabled (CLERK_SECRET_KEY set)")
+        else:
+            logger.warning(
+                "CLERK_SECRET_KEY not set — activation/credits gate DISABLED; "
+                "any signed-in Clerk user can use the API"
+            )
     elif os.environ.get("WEBAPP_AUTH_TOKEN", "").strip():
         logger.info("Legacy shared-bearer auth enabled (WEBAPP_AUTH_TOKEN set)")
     else:
@@ -92,6 +109,10 @@ def create_app() -> FastAPI:
     app.include_router(config_router, prefix="/api")
     app.include_router(runs_router, prefix="/api")
     app.include_router(stream_router, prefix="/api")
+    # No prefix: these two routes deliberately live on different roots. The
+    # websocket is public under /api/relay/ws, while the shim sits on /internal
+    # so the frontend's /api/* catch-all proxy does not expose it.
+    app.include_router(relay_router)
 
     # Static frontend.
     if STATIC_DIR.is_dir():

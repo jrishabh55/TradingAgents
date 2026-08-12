@@ -41,6 +41,14 @@ def _build_app() -> FastAPI:
     def health(request: Request) -> dict:
         return {"user_id": getattr(request.state, "user_id", None)}
 
+    @app.post("/internal/relay/v1/codex/chat/completions")
+    def shim(request: Request) -> dict:
+        return {"user_id": getattr(request.state, "user_id", None)}
+
+    @app.get("/api/helper/download")
+    def download(request: Request) -> dict:
+        return {"user_id": getattr(request.state, "user_id", None)}
+
     return app
 
 
@@ -71,6 +79,26 @@ def test_open_mode_health_skips_auth():
     client = TestClient(_build_app())
     r = client.get("/health")
     assert r.status_code == 200
+
+
+def test_relay_shim_bypasses_middleware_in_locked_modes(monkeypatch):
+    """The pipeline worker calls /internal/relay with a per-run internal token,
+    not a shared bearer or Clerk JWT — the middleware must let it through so
+    the shim can run its own (per-run) authentication."""
+    monkeypatch.setenv("WEBAPP_AUTH_TOKEN", "s3cret")
+    client = TestClient(_build_app())
+    r = client.post("/internal/relay/v1/codex/chat/completions",
+                    headers={"authorization": "Bearer per-run-internal-token"})
+    assert r.status_code == 200
+    assert r.json()["user_id"] == ANONYMOUS_USER_ID
+
+
+def test_helper_download_bypasses_auth(monkeypatch):
+    """A bare <a href> download link carries no bearer token; the artifact is
+    public by design."""
+    monkeypatch.setenv("WEBAPP_AUTH_TOKEN", "s3cret")
+    client = TestClient(_build_app())
+    assert client.get("/api/helper/download").status_code == 200
 
 
 # ---------- mode: legacy shared bearer ----------

@@ -17,7 +17,12 @@ from pydantic import BaseModel, Field
 
 # Status vocabulary for jobs. Aligned with the SSE event taxonomy in
 # apps/api/jobs/translator.py.
-RunStatus = Literal["queued", "running", "completed", "failed", "cancelled"]
+# "interrupted" is a RESUMABLE state, distinct from "failed": the run did not
+# error, the process went away underneath it (deploy, crash, laptop sleep). Only
+# runs in this state are candidates for checkpoint resume.
+RunStatus = Literal[
+    "queued", "running", "completed", "failed", "cancelled", "interrupted"
+]
 
 
 # Fields that participate in the cache key. Anything that changes the
@@ -152,6 +157,9 @@ class ProviderOption(BaseModel):
     supports_reasoning_effort: bool = False
     supports_google_thinking: bool = False
     supports_anthropic_effort: bool = False
+    #: True for providers backed by a helper process the user must be running;
+    #: the UI checks GET /api/helper/status before treating them as usable.
+    requires_helper: bool = False
 
 
 class ModelOption(BaseModel):

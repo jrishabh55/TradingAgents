@@ -1,0 +1,15 @@
+# Pip-installable deps for the local helper (`python -m apps.helper`).
+# Kept separate from pyproject.toml so the upstream packaging metadata stays
+# untouched (see FORK_PATCHES.md). fastapi/uvicorn overlap with apps/api on
+# purpose: the helper runs on END-USER machines that never install the API.
+fastapi>=0.118
+uvicorn[standard]>=0.46
+# Upstream Codex/OAuth HTTP calls.
+httpx>=0.27
+# Outbound relay connection (`python -m apps.helper connect`). >=14 because
+# relay_client passes `additional_headers`, which only the new asyncio client
+# (top-level default since 14) accepts — 13.x expects `extra_headers`.
+websockets>=14
+# Native window for `app` mode (wraps the OS webview — WKWebView/WebView2).
+# Optional at runtime: if missing, `app` falls back to opening a browser tab.
+pywebview>=5

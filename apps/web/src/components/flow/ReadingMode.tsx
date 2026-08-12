@@ -5,6 +5,7 @@ import { StatusBar } from '#/components/shared/StatusBar'
 import { ReportBody } from '#/components/shared/ReportBody'
 import { LevelsPanel } from '#/components/flow/LevelsPanel'
 import { api } from '#/lib/api'
+import { ratingTooltip } from '#/lib/rating'
 import type { RunDetail } from '#/lib/types'
 
 const TABS = [
@@ -195,7 +196,9 @@ export function ReadingMode({ run }: { run: RunDetail }) {
               <span className="es-pill">{run.ticker}</span>
               <span className="es-pill">{run.analysis_date}</span>
               {run.rating && (
-                <span className="es-pill accent">{run.rating}</span>
+                <span className="es-pill accent" title={ratingTooltip(run.rating)}>
+                  {run.rating}
+                </span>
               )}
               <div style={{ flex: 1 }} />
               <a

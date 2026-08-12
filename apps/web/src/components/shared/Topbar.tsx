@@ -1,12 +1,46 @@
 import { UserButton } from '@clerk/react'
 import { Link } from '@tanstack/react-router'
+import { useEffect, useState } from 'react'
+
+import { api } from '../../lib/api'
+
+/** Remaining run credits (Clerk privateMetadata, served by /api/me).
+ *
+ *  Fetches on mount — the Topbar remounts on navigation, and the backend
+ *  caches the gate lookup, so this stays cheap and current (a run debit
+ *  updates the server cache immediately). Renders nothing while loading or
+ *  when the deployment has no credit gate (`credits: null`). */
+function CreditsPill() {
+  const [credits, setCredits] = useState<number | null>(null)
+
+  useEffect(() => {
+    let stale = false
+    api
+      .me()
+      .then((me) => !stale && setCredits(me.credits))
+      .catch(() => {
+        /* gate off, backend down, or not activated — no pill either way */
+      })
+    return () => {
+      stale = true
+    }
+  }, [])
+
+  if (credits == null) return null
+  return (
+    <span className={`es-pill ${credits > 0 ? 'ok' : 'err'}`}>
+      {credits} credit{credits === 1 ? '' : 's'}
+    </span>
+  )
+}
 
 export interface TopbarProps {
   ticker?: string
   date?: string
   /* `running` shows a yellow live pill, `done` shows a green completed pill,
-     `idle` (default) shows nothing in the right slot. */
-  state?: 'idle' | 'running' | 'done' | 'failed'
+     `interrupted` an orange warning pill, `idle` (default) shows nothing in
+     the right slot. */
+  state?: 'idle' | 'running' | 'done' | 'failed' | 'interrupted'
   elapsed?: string | null
   total?: string | null
   onCancel?: () => void
@@ -26,7 +60,7 @@ export function Topbar({
     <div className="es-topbar">
       <Link to="/" className="es-logo no-underline">
         <div className="es-logo-mark">D</div>
-        Drishiti
+        Drishti
       </Link>
       {ticker && (
         <div className="es-crumbs">
@@ -61,6 +95,12 @@ export function Topbar({
           Run failed
         </span>
       )}
+      {state === 'interrupted' && (
+        <span className="es-pill warn">
+          <span className="es-dot" />
+          Run interrupted
+        </span>
+      )}
       {state === 'running' && onCancel && (
         <button className="es-btn ghost sm" onClick={onCancel}>
           Cancel
@@ -74,6 +114,7 @@ export function Topbar({
       <Link to="/" className="es-btn primary sm no-underline">
         New analysis
       </Link>
+      <CreditsPill />
       {/* Sign-out / account menu lives at the end of the topbar so it
           owns its own layout slot — no fixed-position overlay fighting
           with page buttons. */}

@@ -1,8 +1,8 @@
-import { ClerkProvider, Show, SignIn } from '@clerk/react'
+import { ClerkProvider, Show, SignIn, UserButton } from '@clerk/react'
 import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router'
-import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
-import { TanStackDevtools } from '@tanstack/react-devtools'
+import { useEffect, useState } from 'react'
 
+import { api, isNotActivated } from '../lib/api'
 import appCss from '../styles.css?url'
 
 /* Vite exposes any env var prefixed with VITE_* to the browser bundle.
@@ -29,7 +29,7 @@ export const Route = createRootRoute({
     meta: [
       { charSet: 'utf-8' },
       { name: 'viewport', content: 'width=device-width, initial-scale=1' },
-      { title: 'Drishiti — TradingAgents' },
+      { title: 'Drishti — TradingAgents' },
       { name: 'color-scheme', content: 'dark' },
     ],
     links: [{ rel: 'stylesheet', href: appCss }],
@@ -71,18 +71,86 @@ function RootDocument({ children }: { children: React.ReactNode }) {
                 Topbar now — it owns the layout slot, no fixed-position
                 overlay fighting with page buttons. See
                 apps/web/src/components/shared/Topbar.tsx. */}
-            {children}
+            <ActivationGate>{children}</ActivationGate>
           </Show>
         </ClerkProvider>
-        <TanStackDevtools
-          config={{ position: 'bottom-right' }}
-          plugins={[
-            { name: 'TanStack Router', render: <TanStackRouterDevtoolsPanel /> },
-          ]}
-        />
         <Scripts />
       </body>
     </html>
+  )
+}
+
+/** Blocks signed-in-but-not-activated users behind a "pending" screen.
+ *
+ *  The backend's auth middleware 403s every /api request with
+ *  `{code: "not_activated"}` until the admin sets `{"activated": true}` in
+ *  the user's Clerk privateMetadata (dashboard → Users → Metadata → Private).
+ *  This is purely cosmetic — enforcement is server-side; any other /me
+ *  failure (backend down, gate disabled) falls through to the app, which
+ *  surfaces its own errors. */
+function ActivationGate({ children }: { children: React.ReactNode }) {
+  const [state, setState] = useState<'loading' | 'active' | 'pending'>(
+    'loading',
+  )
+
+  useEffect(() => {
+    let stale = false
+    api
+      .me()
+      .then(() => !stale && setState('active'))
+      .catch((e: unknown) =>
+        !stale && setState(isNotActivated(e) ? 'pending' : 'active'),
+      )
+    return () => {
+      stale = true
+    }
+  }, [])
+
+  if (state === 'loading') return null
+  if (state === 'active') return <>{children}</>
+  return (
+    <main
+      style={{
+        minHeight: '100vh',
+        background: 'var(--bg-0)',
+        display: 'grid',
+        placeItems: 'center',
+        padding: '24px',
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: 16,
+          maxWidth: 480,
+          textAlign: 'center',
+        }}
+      >
+        <h1
+          style={{
+            fontSize: 36,
+            fontWeight: 600,
+            color: 'var(--text-1)',
+            letterSpacing: '-0.02em',
+            margin: 0,
+          }}
+        >
+          Drishti
+        </h1>
+        <p style={{ color: 'var(--text-2)', fontSize: 15, margin: 0 }}>
+          Your account is pending activation.
+        </p>
+        <p style={{ color: 'var(--text-3)', fontSize: 13, margin: 0 }}>
+          Access is invite-only for now — you&apos;ll be able to sign in once
+          an admin activates your account. Check back later or refresh this
+          page.
+        </p>
+        {/* Sign-out escape hatch so a wrong-account sign-in isn't a trap. */}
+        <UserButton />
+      </div>
+    </main>
   )
 }
 
@@ -123,7 +191,7 @@ function SignInGate() {
               margin: 0,
             }}
           >
-            Drishiti
+            Drishti
           </h1>
           <p
             style={{

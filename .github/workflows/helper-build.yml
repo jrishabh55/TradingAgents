@@ -1,0 +1,86 @@
+name: helper-build
+
+# Builds the desktop helper installers on real OS runners — PyInstaller
+# cannot cross-compile, so macOS and Windows each build their own artifact
+# with the same scripts a developer runs locally.
+#
+# Trigger manually (workflow_dispatch) to get artifacts on the run page, or
+# push a `helper-v*` tag to also publish a GitHub release. Point
+# TA_HELPER_DOWNLOAD_URL at the release, or drop the artifacts into dist/ on
+# the server to keep the API's per-OS download route in charge.
+#
+# Unsigned on purpose: codesign/notarization (macOS) and signtool (Windows)
+# need org certificates — wire them in here when those exist.
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["helper-v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    name: macOS (.dmg + .zip)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      # The build scripts create their own uv-managed packaging venv
+      # (native-arch CPython) — nothing else to prepare.
+      - name: Build
+        run: bash apps/helper/packaging/build.sh
+      - name: Assert native arm64 binary
+        run: |
+          arch=$(lipo -archs dist/DrishtiHelper.app/Contents/MacOS/DrishtiHelper)
+          echo "built arch: $arch"
+          [ "$arch" = "arm64" ]
+      - uses: actions/upload-artifact@v4
+        with:
+          name: helper-macos
+          path: |
+            dist/DrishtiHelper.dmg
+            dist/DrishtiHelper.zip
+          if-no-files-found: error
+
+  windows:
+    name: Windows (Setup.exe + .zip)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Ensure Inno Setup
+        run: |
+          if (-not (Get-Command iscc -ErrorAction SilentlyContinue)) {
+            choco install innosetup -y --no-progress
+          }
+      - name: Build
+        run: powershell -ExecutionPolicy Bypass -File apps/helper/packaging/build.ps1
+      - name: Fail if the installer was skipped
+        run: |
+          if (-not (Test-Path dist/DrishtiHelperSetup.exe)) {
+            Write-Error "iscc missing or failed - installer not built"
+          }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: helper-windows
+          path: |
+            dist/DrishtiHelperSetup.exe
+            dist/DrishtiHelper-windows.zip
+          if-no-files-found: error
+
+  release:
+    name: GitHub release
+    if: startsWith(github.ref, 'refs/tags/helper-v')
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+          path: dist
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          fail_on_unmatched_files: true

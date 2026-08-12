@@ -5,7 +5,10 @@ Three modes, in order of preference:
 1. **Clerk JWT** — when ``CLERK_JWKS_URL`` is set. Every ``/api/*`` request
    must carry an ``Authorization: Bearer <jwt>`` header. The JWT is verified
    against Clerk's JWKs and the ``sub`` claim (a Clerk user id like
-   ``user_2abcXYZ``) becomes the request's user identity.
+   ``user_2abcXYZ``) becomes the request's user identity. When
+   ``CLERK_SECRET_KEY`` is also set, an activation gate runs on top: only
+   users with ``{"activated": true}`` in their Clerk privateMetadata get
+   past the middleware (403 otherwise) — see apps/api/clerk_users.py.
 
 2. **Legacy shared bearer token** — when only ``WEBAPP_AUTH_TOKEN`` is set
    (Clerk not configured). One token is shared by all callers; every request
@@ -36,6 +39,9 @@ import jwt
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 from jwt import PyJWKClient
+from starlette.concurrency import run_in_threadpool
+
+from apps.api import clerk_users
 
 
 logger = logging.getLogger(__name__)
@@ -49,8 +55,16 @@ SHARED_BEARER_USER_ID = "shared-bearer"
 
 # Paths that bypass auth entirely. The SPA needs to load before it can attach
 # a token, and oncall scripts hit /health without a token.
-_BYPASS_PATHS = ("/", "/health")
-_BYPASS_PREFIXES = ("/static",)
+# /api/helper/download serves the packaged helper app — a public artifact a
+# not-yet-authenticated user needs, and a bare <a href> carries no bearer.
+# /api/helper/version is its version metadata: running helpers poll it for
+# update checks and hold a relay pairing token, not a Clerk JWT.
+_BYPASS_PATHS = ("/", "/health", "/api/helper/download", "/api/helper/version")
+# /internal/relay is the pipeline worker calling back into this server with a
+# per-run internal token — it has no Clerk JWT. The shim authenticates that
+# token itself (routes/relay.py), which is stronger than the shared bearer:
+# the token is minted per run and revoked when the run ends.
+_BYPASS_PREFIXES = ("/static", "/internal/relay/")
 
 
 def _bypass(path: str) -> bool:
@@ -156,6 +170,37 @@ def _unauth(detail: str) -> JSONResponse:
     return JSONResponse({"detail": detail}, status_code=401)
 
 
+async def _enforce_activation(request: Request) -> Optional[JSONResponse]:
+    """Clerk-mode only: reject users the admin hasn't activated.
+
+    Activation lives in Clerk privateMetadata (``{"activated": true}``),
+    edited from the Clerk dashboard — see apps/api/clerk_users.py. Disabled
+    (returns None) when CLERK_SECRET_KEY is unset, so JWKS-only deployments
+    behave exactly as before. On success the gate (activation + credits) is
+    attached to ``request.state.gate`` for routes like /api/me.
+    """
+    if not clerk_users.enabled():
+        return None
+    try:
+        # Sync urllib client under the hood — keep it off the event loop.
+        gate = await run_in_threadpool(clerk_users.get_gate, request.state.user_id)
+    except Exception:
+        logger.exception("activation check failed for %s", request.state.user_id)
+        return JSONResponse(
+            {"detail": {"code": "activation_check_failed",
+                        "message": "could not verify account status, try again"}},
+            status_code=503,
+        )
+    if not gate.activated:
+        return JSONResponse(
+            {"detail": {"code": "not_activated",
+                        "message": "account not activated yet — contact the admin"}},
+            status_code=403,
+        )
+    request.state.gate = gate
+    return None
+
+
 async def auth_middleware(request: Request, call_next):
     """Resolve ``request.state.user_id`` based on the configured auth mode.
 
@@ -182,6 +227,9 @@ async def auth_middleware(request: Request, call_next):
             request.state.user_id = verifier.verify(token)
         except HTTPException as exc:
             return _unauth(str(exc.detail))
+        denied = await _enforce_activation(request)
+        if denied is not None:
+            return denied
         return await call_next(request)
 
     legacy_token = os.environ.get("WEBAPP_AUTH_TOKEN", "").strip()

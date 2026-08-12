@@ -43,7 +43,20 @@ CREATE TABLE IF NOT EXISTS runs (
     final_state_json TEXT,
     error         TEXT,
     request_hash  TEXT,
-    user_id       TEXT
+    user_id       TEXT,
+    -- LangGraph checkpoint namespace. Scoped per RUN, not per ticker+date:
+    -- upstream's thread_id(ticker, date, signature) carries no user id, and the
+    -- API deliberately allows the same ticker concurrently across users, so
+    -- reusing it would let one user's resume continue another user's graph.
+    checkpoint_ns TEXT,
+    -- Effective graph config at launch, minus secrets. config_json holds the
+    -- REQUEST, while the graph re-applies an env-derived DEFAULT_CONFIG, so a
+    -- restart could otherwise silently resume under a different temperature or
+    -- retry policy than the run started with.
+    effective_config_json TEXT,
+    -- Times this run has been resumed. Capped so a run that dies the same way
+    -- every time cannot be re-billed in an infinite resume loop.
+    resume_count INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS events (
@@ -54,6 +67,15 @@ CREATE TABLE IF NOT EXISTS events (
     type      TEXT NOT NULL,
     data_json TEXT NOT NULL,
     UNIQUE(run_id, seq)
+);
+
+-- Long-lived credentials a user's local helper presents on the relay
+-- websocket. Only the SHA-256 of the token is stored, so a copy of this DB
+-- cannot impersonate anyone's helper.
+CREATE TABLE IF NOT EXISTS relay_pair_tokens (
+    token_hash TEXT PRIMARY KEY,
+    user_id    TEXT NOT NULL,
+    created_at TEXT NOT NULL
 );
 """
 
@@ -76,7 +98,15 @@ CREATE INDEX IF NOT EXISTS idx_events_run_seq ON events(run_id, seq);
 _RUNS_TABLE_MIGRATIONS = [
     ("request_hash", "TEXT"),
     ("user_id", "TEXT"),
+    ("checkpoint_ns", "TEXT"),
+    ("effective_config_json", "TEXT"),
+    ("resume_count", "INTEGER NOT NULL DEFAULT 0"),
 ]
+
+#: A run interrupted more times than this is refused further resumes — each
+#: resume re-bills the LLM calls after the last checkpoint, so a run that dies
+#: the same way every time must not loop.
+MAX_RESUMES = 3
 
 
 def _utcnow() -> str:
@@ -255,6 +285,123 @@ class JobStore:
                 "UPDATE runs SET status='cancelled', finished_at=? WHERE id=?",
                 (_utcnow(), run_id),
             )
+
+    # ---------- interruption and resume ----------
+
+    def sweep_orphaned_runs(self) -> int:
+        """Mark rows the previous process abandoned as ``interrupted``.
+
+        Sweeps BOTH ``queued`` and ``running``: a queued row's future died with
+        the executor just as surely as a running one, and leaving it queued means
+        it is never picked up and never explained. Called once at startup.
+
+        Returns the number of rows swept.
+        """
+        with self._conn() as conn:
+            cur = conn.execute(
+                "UPDATE runs SET status='interrupted', finished_at=?,"
+                " error=COALESCE(error, ?)"
+                " WHERE status IN ('queued','running')",
+                (_utcnow(), "process restarted before this run finished"),
+            )
+            return cur.rowcount or 0
+
+    def mark_interrupted(self, run_id: str, reason: str) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE runs SET status='interrupted', finished_at=?, error=?"
+                " WHERE id=? AND status IN ('queued','running')",
+                (_utcnow(), reason, run_id),
+            )
+
+    def claim_for_resume(self, run_id: str, *, user_id: Optional[str] = None) -> bool:
+        """Atomically move ``interrupted`` -> ``running``. True if we won.
+
+        The guard is in the WHERE clause rather than a read-then-write, so two
+        concurrent resume requests cannot both proceed and run the same graph
+        twice against the same checkpoint. The same clause enforces the
+        ``MAX_RESUMES`` cap.
+        """
+        sql = ("UPDATE runs SET status='running', finished_at=NULL, error=NULL,"
+               " resume_count=COALESCE(resume_count,0)+1"
+               " WHERE id=? AND status='interrupted'"
+               f" AND COALESCE(resume_count,0) < {MAX_RESUMES}")
+        params: list = [run_id]
+        if user_id is not None:
+            sql += " AND COALESCE(user_id,'anonymous')=?"
+            params.append(user_id)
+        with self._conn() as conn:
+            return (conn.execute(sql, params).rowcount or 0) == 1
+
+    def set_checkpoint_context(
+        self, run_id: str, *, checkpoint_ns: str, effective_config: Dict[str, Any]
+    ) -> None:
+        """Record what a resume needs: the namespace and the launch-time config.
+
+        ``effective_config`` must already be secret-free — it is persisted.
+        """
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE runs SET checkpoint_ns=?, effective_config_json=? WHERE id=?",
+                (checkpoint_ns, json.dumps(effective_config, sort_keys=True, default=str), run_id),
+            )
+
+    def get_checkpoint_context(self, run_id: str) -> Optional[Dict[str, Any]]:
+        """``{"checkpoint_ns": ..., "effective_config": {...}}`` or None."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT checkpoint_ns, effective_config_json FROM runs WHERE id=?",
+                (run_id,),
+            ).fetchone()
+        if row is None or not row[0]:
+            return None
+        try:
+            cfg = json.loads(row[1]) if row[1] else {}
+        except (TypeError, ValueError):
+            cfg = {}
+        return {"checkpoint_ns": row[0], "effective_config": cfg}
+
+    # ---------- relay pairing tokens ----------
+
+    def create_pair_token(self, user_id: str) -> str:
+        """Mint a pairing token for ``user_id``'s helper. Returned exactly once.
+
+        The helper passes it to ``connect --token``; the relay websocket
+        resolves it back to the user. Persistent on purpose — the helper is a
+        long-running daemon and must survive API restarts without re-pairing.
+        """
+        import hashlib
+        import secrets
+
+        raw = f"tarelay_{secrets.token_urlsafe(32)}"
+        digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT INTO relay_pair_tokens (token_hash, user_id, created_at)"
+                " VALUES (?, ?, ?)",
+                (digest, user_id, _utcnow()),
+            )
+        return raw
+
+    def resolve_pair_token(self, raw: str) -> Optional[str]:
+        """The user id a pairing token belongs to, or None."""
+        import hashlib
+
+        digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT user_id FROM relay_pair_tokens WHERE token_hash=?",
+                (digest,),
+            ).fetchone()
+        return row["user_id"] if row is not None else None
+
+    def revoke_pair_tokens(self, user_id: str) -> int:
+        """Drop every pairing token for ``user_id``. Returns how many."""
+        with self._conn() as conn:
+            cur = conn.execute(
+                "DELETE FROM relay_pair_tokens WHERE user_id=?", (user_id,)
+            )
+            return cur.rowcount or 0
 
     def has_active_run_for_ticker(
         self, ticker: str, *, user_id: Optional[str] = None

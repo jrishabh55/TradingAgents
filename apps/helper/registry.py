@@ -1,0 +1,140 @@
+"""Provider registry.
+
+`Provider = (name, adapter, credentials, quirks)`. Adding a provider is one
+module plus one entry here — the ``EchoAdapter`` seam test fails if that stops
+being true.
+
+Quirks are a field, not adapter attributes, because one adapter serves several
+providers that differ only by deployment.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Callable, Iterable, Optional, Protocol, runtime_checkable
+
+from apps.helper.credentials import Credential, CredentialSource
+from apps.helper.quirks import ProviderQuirks
+from apps.helper.types import NormalizedRequest, NormalizedResponse
+
+
+@dataclass
+class CallContext:
+    """Per-call deadline and cancellation.
+
+    Without this an adapter cannot abort an in-flight upstream request, and the
+    pipeline's cancellation is only polled between graph nodes — so a cancelled
+    run would keep streaming and keep billing.
+    """
+
+    timeout_s: float = 600.0
+    #: Returns True when the caller has gone away and the call should abort.
+    is_cancelled: Callable[[], bool] = lambda: False
+
+
+@runtime_checkable
+class UpstreamAdapter(Protocol):
+    """Translates a NormalizedRequest to an upstream call and back."""
+
+    name: str
+
+    async def send(
+        self,
+        req: NormalizedRequest,
+        cred: Credential,
+        quirks: ProviderQuirks,
+        ctx: CallContext,
+    ) -> NormalizedResponse:
+        ...
+
+
+@dataclass(frozen=True)
+class Provider:
+    name: str
+    adapter: UpstreamAdapter
+    quirks: ProviderQuirks
+    #: Tried in order; the first ``available()`` source wins. Sources without an
+    #: ``available()`` method are always considered available.
+    credentials: tuple[CredentialSource, ...]
+
+    async def credential(self) -> Credential:
+        """First source that can produce a credential wins.
+
+        A source being unavailable or stale is NOT an error — it just has nothing
+        to offer, so the chain moves on. That is what makes the helper behave
+        identically whether or not any given CLI happens to be installed: a
+        missing `codex login` silently defers to our own OAuth, and vice versa.
+
+        Only when every source has declined do we raise, and the message carries
+        each source's reason plus the first actionable remedy.
+        """
+        from apps.helper.credentials import CredentialError
+
+        errors: list[str] = []
+        remedies: list[str] = []
+        for src in self.credentials:
+            check = getattr(src, "available", None)
+            if callable(check) and not check():
+                errors.append(f"{src.name}: not present")
+                continue
+            try:
+                return await src.get()
+            except CredentialError as exc:
+                # Remedy captured from the SAME call that failed. An earlier
+                # version re-invoked get() on every source afterwards purely to
+                # harvest this, duplicating work and any network refresh.
+                errors.append(f"{src.name}: {exc.message}")
+                if exc.remedy:
+                    remedies.append(exc.remedy)
+        raise CredentialError(
+            f"no usable credential for provider {self.name!r} ({'; '.join(errors)})",
+            remedy=remedies[0] if remedies else "",
+        )
+
+
+class Registry:
+    """Name -> Provider. Deliberately a plain dict, not a plugin loader."""
+
+    def __init__(self, providers: Iterable[Provider] = ()) -> None:
+        self._providers: dict[str, Provider] = {p.name: p for p in providers}
+
+    def register(self, provider: Provider) -> None:
+        self._providers[provider.name] = provider
+
+    def get(self, name: str) -> Optional[Provider]:
+        return self._providers.get(name)
+
+    def names(self) -> list[str]:
+        return sorted(self._providers)
+
+
+def default_registry(**overrides: Any) -> Registry:
+    """The providers shipped by default.
+
+    Imported lazily so a test can build a registry without pulling httpx or
+    touching the filesystem.
+    """
+    from apps.helper.credentials.cli_file import codex_cli_source
+    from apps.helper.credentials.oauth import OwnOAuthSource
+    from apps.helper.providers.codex import CODEX_QUIRKS, CodexResponsesAdapter
+
+    codex = Provider(
+        name="codex",
+        adapter=overrides.get("codex_adapter") or CodexResponsesAdapter(),
+        quirks=CODEX_QUIRKS,
+        # Ordered chain, each optional. Reusing an existing `codex login` is
+        # zero-friction when it is there and valid; when it is absent or stale
+        # the chain falls through. Our own OAuth (M3) appends here, and a
+        # Gemini provider appends gemini_cli_source the same way — installation
+        # of any CLI is never load-bearing.
+        credentials=(codex_cli_source(), OwnOAuthSource()),
+    )
+    return Registry([codex])
+
+
+__all__ = [
+    "CallContext",
+    "Provider",
+    "Registry",
+    "UpstreamAdapter",
+    "default_registry",
+]
