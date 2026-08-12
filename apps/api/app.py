@@ -69,9 +69,11 @@ def create_app() -> FastAPI:
             shutdown_runner()
 
     app = FastAPI(
-        title="TradingAgents Webapp",
+        # Client-facing name is "Drishti" (served at /docs and /openapi.json);
+        # "TradingAgents" stays internal — repo, python package, upstream fork.
+        title="Drishti API",
         version="0.1.0",
-        description="Web UI + REST/SSE API on top of the TradingAgents pipeline.",
+        description="Web UI + REST/SSE API for Drishti — multi-agent trading analysis.",
         lifespan=lifespan,
     )
 
