@@ -1,4 +1,10 @@
-import { ClerkProvider, Show, SignIn, UserButton } from '@clerk/react'
+import {
+  ClerkLoading,
+  ClerkProvider,
+  Show,
+  SignIn,
+  UserButton,
+} from '@clerk/react'
 import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 
@@ -61,6 +67,11 @@ function RootDocument({ children }: { children: React.ReactNode }) {
           signUpFallbackRedirectUrl="/"
           afterSignOutUrl="/"
         >
+          {/* Neither <Show> branch renders until Clerk hydrates — without
+              this the user stares at a black page for the first second. */}
+          <ClerkLoading>
+            <BootScreen />
+          </ClerkLoading>
           {/* Clerk Core 3 replaced <SignedIn>/<SignedOut> with
               <Show when="..."> in v6. */}
           <Show when="signed-out">
@@ -77,6 +88,35 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <Scripts />
       </body>
     </html>
+  )
+}
+
+/** Full-page pulsing wordmark shown while Clerk hydrates and while the
+ *  activation check is in flight — anywhere the app would otherwise be a
+ *  black page. Reuses the agent-name-pulse keyframes from styles.css. */
+function BootScreen() {
+  return (
+    <main
+      style={{
+        minHeight: '100vh',
+        background: 'var(--bg-0)',
+        display: 'grid',
+        placeItems: 'center',
+      }}
+    >
+      <h1
+        style={{
+          fontSize: 36,
+          fontWeight: 600,
+          color: 'var(--text-1)',
+          letterSpacing: '-0.02em',
+          margin: 0,
+          animation: 'agent-name-pulse 1.6s ease-in-out infinite',
+        }}
+      >
+        Drishti
+      </h1>
+    </main>
   )
 }
 
@@ -106,7 +146,7 @@ function ActivationGate({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
-  if (state === 'loading') return null
+  if (state === 'loading') return <BootScreen />
   if (state === 'active') return <>{children}</>
   return (
     <main
