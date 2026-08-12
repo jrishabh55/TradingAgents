@@ -237,3 +237,6 @@ reports/
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
+
+# Dokploy API credentials for deploy/dokploy.sh — never commit
+/deploy/dokploy.env
