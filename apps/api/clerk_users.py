@@ -69,6 +69,10 @@ def _request(method: str, path: str, body: Optional[dict] = None) -> dict:
         headers={
             "Authorization": f"Bearer {key}",
             "Content-Type": "application/json",
+            # Clerk sits behind Cloudflare, which 403s the default
+            # "Python-urllib/x.y" User-Agent from datacenter IPs. Any
+            # explicit UA passes — verified against api.clerk.com.
+            "User-Agent": "tradingagents-api/1.0",
         },
     )
     with urllib.request.urlopen(req, timeout=10) as resp:
