@@ -167,7 +167,9 @@ Used by:
 
 What goes here:
 - LLM provider API keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, etc.)
-- Clerk auth: `CLERK_JWKS_URL`, `CLERK_ISSUER`
+- Clerk auth: `CLERK_JWKS_URL`, `CLERK_ISSUER`, `CLERK_SECRET_KEY`
+  (secret key enables the activation + credits gate; leave unset in local
+  dev to skip it — see `apps/api/CLERK_SETUP.md`)
 - Optional overrides: `WEBAPP_DB_PATH`, `WEBAPP_CONCURRENCY`,
   `WEBAPP_CACHE_TTL_SECONDS`, etc.
 

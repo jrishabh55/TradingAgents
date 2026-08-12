@@ -91,6 +91,15 @@ def create_app() -> FastAPI:
     app.middleware("http")(auth_middleware)
     if get_verifier() is not None:
         logger.info("Clerk auth enabled (CLERK_JWKS_URL configured)")
+        from apps.api import clerk_users
+
+        if clerk_users.enabled():
+            logger.info("Activation + credits gate enabled (CLERK_SECRET_KEY set)")
+        else:
+            logger.warning(
+                "CLERK_SECRET_KEY not set — activation/credits gate DISABLED; "
+                "any signed-in Clerk user can use the API"
+            )
     elif os.environ.get("WEBAPP_AUTH_TOKEN", "").strip():
         logger.info("Legacy shared-bearer auth enabled (WEBAPP_AUTH_TOKEN set)")
     else:

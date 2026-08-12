@@ -66,6 +66,15 @@ export interface ProviderOption {
 }
 
 /* GET /helper/status — whether the user's local helper is reachable. */
+/* GET /me — activation + credits gate state. The middleware 403s
+   non-activated users before this route, so a successful response always
+   means activated. `credits: null` = gate off (no credit concept). */
+export interface MeResponse {
+  user_id: string
+  activated: boolean
+  credits: number | null
+}
+
 export interface HelperStatus {
   enabled: boolean
   mode: 'relay' | 'local' | null

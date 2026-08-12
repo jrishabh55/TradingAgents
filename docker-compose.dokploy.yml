@@ -44,6 +44,9 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:?set OPENAI_API_KEY in Dokploy's Environment panel}
       CLERK_JWKS_URL: ${CLERK_JWKS_URL:?set CLERK_JWKS_URL or the API is publicly unauthenticated}
       CLERK_ISSUER: ${CLERK_ISSUER:?set CLERK_ISSUER or the API is publicly unauthenticated}
+      # Enables the activation + credits gate (Clerk privateMetadata). Without
+      # it, any user who can sign up may spend your LLM credits.
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:?set CLERK_SECRET_KEY or any signed-up user can run analyses}
 
       # Optional providers — only the ones you set become usable at runtime.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}

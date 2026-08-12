@@ -19,7 +19,8 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import StreamingResponse
 
-from apps.api.auth import current_user_id
+from apps.api import clerk_users
+from apps.api.auth import ANONYMOUS_USER_ID, SHARED_BEARER_USER_ID, current_user_id
 from apps.api.jobs.markdown import render_markdown_report
 from apps.api.jobs.runner import get_runner
 from apps.api.jobs.store import get_store
@@ -156,6 +157,33 @@ def create_run(
             detail=f"A run for {request.ticker} is already queued or running for this user. "
                    "Wait for it to finish before starting another.",
         )
+
+    # Credits: 1 per fresh pipeline run, debited last on purpose — cache hits,
+    # validation failures, helper 409s, and preflight rejections above never
+    # cost anything. Resume stays free (it's failure recovery, already capped
+    # by MAX_RESUMES). Synthetic users (legacy bearer / open mode) have no
+    # Clerk record, so the gate only applies to real Clerk users.
+    if clerk_users.enabled() and user_id not in (ANONYMOUS_USER_ID, SHARED_BEARER_USER_ID):
+        try:
+            remaining = clerk_users.debit_credit(user_id)
+        except HTTPException:
+            raise
+        except Exception:
+            # Clerk API unreachable: fail closed on spend, but as a retriable
+            # 503 rather than a misleading "out of credits".
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="credit check unavailable, try again shortly",
+            )
+        if remaining is None:
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail={
+                    "code": "insufficient_credits",
+                    "message": "You're out of credits — ask the admin for a top-up.",
+                    "credits": 0,
+                },
+            )
 
     run_id = store.create_run(
         ticker=request.ticker,

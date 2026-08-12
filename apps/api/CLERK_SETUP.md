@@ -11,8 +11,9 @@ on every API request. Two env vars are all you need to flip it on.
 3. From **API Keys** in the dashboard, you'll need:
    - **Publishable Key** (`pk_test_...` or `pk_live_...`) — used by the frontend
    - **Frontend API URL** (e.g. `https://<your-app>.clerk.accounts.dev`) — used to derive the JWKs URL
-
-The **Secret Key** is NOT needed by this backend (we verify JWTs with the public JWKs, not with a session API).
+   - **Secret Key** (`sk_test_...` or `sk_live_...`) — used by the backend for
+     the activation + credits gate (privateMetadata is only reachable via the
+     Backend API). JWT *verification* itself still only needs the public JWKs.
 
 ## 2. Set backend env vars
 
@@ -21,6 +22,7 @@ In `.env` (or your deployment's env config):
 ```
 CLERK_JWKS_URL=https://<your-app>.clerk.accounts.dev/.well-known/jwks.json
 CLERK_ISSUER=https://<your-app>.clerk.accounts.dev
+CLERK_SECRET_KEY=sk_test_...
 ```
 
 `CLERK_ISSUER` is optional but **strongly recommended** — without it, a JWT
@@ -35,6 +37,33 @@ If you instead see *"Auth disabled — every request runs as 'anonymous'"*,
 the env var didn't reach the process. Common causes: wrong `.env` path,
 forgot to restart the container, or `WEBAPP_CORS_ORIGINS`/etc. set but
 `CLERK_JWKS_URL` typo'd.
+
+With `CLERK_SECRET_KEY` also set you should see
+*"Activation + credits gate enabled (CLERK_SECRET_KEY set)"*; without it a
+warning that the gate is disabled and any signed-in user can use the API.
+
+## Activation + credits (privateMetadata)
+
+The Clerk dashboard is the admin UI for both. Open **Users → (user) →
+Metadata → Private** and set:
+
+```json
+{ "activated": true, "credits": 10 }
+```
+
+- **`activated`** — default deny. A signed-in user without `activated: true`
+  gets HTTP 403 `{"code": "not_activated"}` on every `/api/*` request, and
+  the frontend shows a "pending activation" screen. Flip it to `true` to let
+  them in; you don't need to set `credits` — it's seeded to 10 automatically
+  on their first request after activation.
+- **`credits`** — each fresh analysis run (`POST /api/runs`) costs 1. Cache
+  hits, rejected tickers, and resumes are free. At 0 the API returns HTTP 402
+  `{"code": "insufficient_credits"}`. Top up by editing the number in the
+  dashboard.
+
+Gate reads are cached in-process for 60s, so dashboard edits take up to a
+minute to apply. Enforcement lives in `apps/api/auth.py` (activation) and
+`apps/api/routes/runs.py` (credits), backed by `apps/api/clerk_users.py`.
 
 ## 3. Wire up the frontend
 
@@ -152,6 +181,8 @@ on env vars.
 - **No revocation list.** A leaked JWT is valid until its `exp` (typically
   60s for Clerk session tokens). For higher-stakes use cases, add Clerk's
   session-API check on top.
-- **No rate limiting per user.** Cache + concurrency limits prevent the worst
-  cases, but a determined user could still rack up API spend. Add a quota
-  table once billing matters (see TASKS.md task 6).
+- **Credits are the only quota.** The per-run credit debit (above) caps total
+  spend per user, but there's no time-based rate limiting. The debit is a
+  read-modify-write against Clerk metadata guarded by an in-process lock —
+  fine for a single API process; move the ledger into SQLite if you ever run
+  multiple replicas (see TASKS.md task 6).

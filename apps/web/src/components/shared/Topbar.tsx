@@ -1,5 +1,38 @@
 import { UserButton } from '@clerk/react'
 import { Link } from '@tanstack/react-router'
+import { useEffect, useState } from 'react'
+
+import { api } from '../../lib/api'
+
+/** Remaining run credits (Clerk privateMetadata, served by /api/me).
+ *
+ *  Fetches on mount — the Topbar remounts on navigation, and the backend
+ *  caches the gate lookup, so this stays cheap and current (a run debit
+ *  updates the server cache immediately). Renders nothing while loading or
+ *  when the deployment has no credit gate (`credits: null`). */
+function CreditsPill() {
+  const [credits, setCredits] = useState<number | null>(null)
+
+  useEffect(() => {
+    let stale = false
+    api
+      .me()
+      .then((me) => !stale && setCredits(me.credits))
+      .catch(() => {
+        /* gate off, backend down, or not activated — no pill either way */
+      })
+    return () => {
+      stale = true
+    }
+  }, [])
+
+  if (credits == null) return null
+  return (
+    <span className={`es-pill ${credits > 0 ? 'ok' : 'err'}`}>
+      {credits} credit{credits === 1 ? '' : 's'}
+    </span>
+  )
+}
 
 export interface TopbarProps {
   ticker?: string
@@ -81,6 +114,7 @@ export function Topbar({
       <Link to="/" className="es-btn primary sm no-underline">
         New analysis
       </Link>
+      <CreditsPill />
       {/* Sign-out / account menu lives at the end of the topbar so it
           owns its own layout slot — no fixed-position overlay fighting
           with page buttons. */}

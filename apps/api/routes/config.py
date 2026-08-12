@@ -9,13 +9,32 @@ from __future__ import annotations
 
 from typing import List
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 
 from tradingagents.llm_clients.model_catalog import MODEL_OPTIONS
+from apps.api.auth import current_user_id
 from apps.api.schemas import ConfigResponse, ModelOption, ProviderOption
 
 
 router = APIRouter()
+
+
+@router.get("/me")
+def me(request: Request, user_id: str = Depends(current_user_id)) -> dict:
+    """Current user + gate state (activation, credits).
+
+    In Clerk mode with the activation gate on, the auth middleware has
+    already 403'd non-activated users and attached the gate to
+    ``request.state.gate`` — reaching this handler means activated. With the
+    gate off (legacy bearer / open mode / no CLERK_SECRET_KEY) there is no
+    credit concept: ``credits: null`` tells the UI to hide the pill.
+    """
+    gate = getattr(request.state, "gate", None)
+    return {
+        "user_id": user_id,
+        "activated": True,
+        "credits": None if gate is None else gate.credits,
+    }
 
 
 # (display, key, backend_url, capability flags) — mirrors cli/utils.py:233-244

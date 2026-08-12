@@ -3,6 +3,7 @@ import type {
   HelperStatus,
   LevelsParams,
   LevelsResponse,
+  MeResponse,
   PairResponse,
   RunDetail,
   RunRequest,
@@ -123,7 +124,19 @@ async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>
 }
 
+/** True when `err` is the middleware's "account not activated" rejection. */
+export function isNotActivated(err: unknown): boolean {
+  return (
+    err instanceof ApiError &&
+    err.status === 403 &&
+    typeof err.detail === 'object' &&
+    err.detail !== null &&
+    (err.detail as Record<string, unknown>).code === 'not_activated'
+  )
+}
+
 export const api = {
+  me: () => jsonFetch<MeResponse>('/me'),
   config: () => jsonFetch<ConfigResponse>('/config'),
   listRuns: () => jsonFetch<RunSummary[]>('/runs'),
   getRun: (id: string) => jsonFetch<RunDetail>(`/runs/${id}`),

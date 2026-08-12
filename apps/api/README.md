@@ -49,6 +49,7 @@ Open <http://localhost:8080>.
 | `WEBAPP_AUTH_TOKEN` | (unset) | Legacy: shared bearer token. Superseded by Clerk JWT when `CLERK_JWKS_URL` is set. |
 | `CLERK_JWKS_URL` | (unset) | Clerk JWKS endpoint, e.g. `https://<your-app>.clerk.accounts.dev/.well-known/jwks.json`. When set, every `/api/*` request must carry a valid Clerk JWT. |
 | `CLERK_ISSUER` | (unset) | Expected `iss` claim value, e.g. `https://<your-app>.clerk.accounts.dev`. |
+| `CLERK_SECRET_KEY` | (unset) | Enables the activation + credits gate: only users with `{"activated": true}` in Clerk privateMetadata may call the API; each run costs 1 credit (seeded to 10). See `CLERK_SETUP.md`. |
 | `WEBAPP_CORS_ORIGINS` | `*` | Comma-separated CORS allowlist. |
 | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, … | — | LLM provider credentials. Same keys the CLI uses. |
 | `TRADINGAGENTS_RESULTS_DIR`, `TRADINGAGENTS_CACHE_DIR`, `TRADINGAGENTS_MEMORY_LOG_PATH` | — | Override upstream paths (memory log, cache). |
