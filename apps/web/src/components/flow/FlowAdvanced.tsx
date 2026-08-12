@@ -1,6 +1,7 @@
-import type { ConfigResponse, HelperStatus } from '#/lib/types'
+import type { ConfigResponse, GeminiKeyStatus, HelperStatus } from '#/lib/types'
 import type { FlowState } from './FlowLanding'
 import { HelperSetup } from './FlowLanding'
+import { GeminiSetup } from './GeminiSetup'
 
 const ANALYSTS = [
   { id: 'market', name: 'Market', desc: 'Technicals, charts, indicators' },
@@ -48,6 +49,10 @@ export interface FlowAdvancedProps {
   /* Reachability of the local helper — only fetched (by FlowLanding) when
      the selected provider has `requires_helper`. */
   helperStatus: HelperStatus | null
+  /* Gemini BYOC credential state — fetched by FlowLanding when the selected
+     provider has `requires_user_key`; onGeminiChanged triggers a refetch. */
+  geminiStatus: GeminiKeyStatus | null
+  onGeminiChanged: () => void
   onClose: () => void
   onStart: () => void
 }
@@ -59,14 +64,19 @@ export function FlowAdvanced({
   config,
   submitting,
   helperStatus,
+  geminiStatus,
+  onGeminiChanged,
   onClose,
   onStart,
 }: FlowAdvancedProps) {
   const provider = config?.providers.find((p) => p.key === form.provider)
-  /* Mirrors FlowLanding's gate: a helper-backed provider with no reachable
-     helper must not submit a run that is guaranteed to fail. */
+  /* Mirrors FlowLanding's gates: a provider whose backing (helper process /
+     BYOC credential) isn't there must not submit a run guaranteed to fail. */
   const helperBlocked =
     !!provider?.requires_helper && helperStatus?.connected !== true
+  const geminiBlocked =
+    !!provider?.requires_user_key && geminiStatus?.active_source == null
+  const blocked = helperBlocked || geminiBlocked
   const models = config?.models_by_provider[form.provider] ?? []
 
   const supportsReasoning =
@@ -157,7 +167,7 @@ export function FlowAdvanced({
               className="es-btn primary"
               style={{ height: 44, padding: '0 22px', fontSize: 14, marginRight: 6 }}
               onClick={onStart}
-              disabled={submitting || helperBlocked || form.analysts.length === 0}
+              disabled={submitting || blocked || form.analysts.length === 0}
             >
               {submitting ? 'Starting…' : 'Start analysis →'}
             </button>
@@ -294,7 +304,6 @@ export function FlowAdvanced({
                       const ms = config?.models_by_provider[p.key] ?? []
                       patch({
                         provider: p.key,
-                        backendUrl: p.backend_url ?? undefined,
                         shallowThinker: ms[0]?.id ?? '',
                         deepThinker: ms[1]?.id ?? ms[0]?.id ?? '',
                       })
@@ -306,6 +315,9 @@ export function FlowAdvanced({
               </div>
               {provider?.requires_helper && (
                 <HelperSetup status={helperStatus} />
+              )}
+              {provider?.requires_user_key && (
+                <GeminiSetup status={geminiStatus} onChanged={onGeminiChanged} />
               )}
               <div
                 style={{
@@ -357,16 +369,6 @@ export function FlowAdvanced({
                   </div>
                 </Field>
               )}
-              <Field label="Backend URL" hint="Self-hosted endpoint override.">
-                <input
-                  className="fld-input"
-                  placeholder={provider?.backend_url ?? 'https://api.openai.com/v1'}
-                  value={form.backendUrl ?? ''}
-                  onChange={(e) =>
-                    patch({ backendUrl: e.target.value || undefined })
-                  }
-                />
-              </Field>
             </div>
           </div>
 
@@ -453,7 +455,7 @@ export function FlowAdvanced({
             className="es-btn primary"
             style={{ height: 38, padding: '0 22px' }}
             onClick={onStart}
-            disabled={submitting || helperBlocked || form.analysts.length === 0}
+            disabled={submitting || blocked || form.analysts.length === 0}
           >
             {submitting ? 'Starting…' : 'Start analysis →'}
           </button>

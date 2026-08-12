@@ -133,6 +133,38 @@ def get_gate(user_id: str) -> Gate:
     return gate
 
 
+def get_google_oauth_token(user_id: str) -> Optional[str]:
+    """The user's Google OAuth access token from Clerk, or None.
+
+    Clerk refreshes the token server-side when it holds a refresh token, so
+    what comes back is usable immediately. None covers every "no token" case:
+    gate disabled, user has no Google account linked, or Clerk errored —
+    callers treat all of those as "OAuth path unavailable" and fall back to
+    the manual key.
+    """
+    if not enabled() or not user_id:
+        return None
+    # Clerk renamed the provider slug from "oauth_google" to "google";
+    # deployments differ by API version, so probe both.
+    for provider in ("oauth_google", "google"):
+        try:
+            data = _request("GET", f"/users/{user_id}/oauth_access_tokens/{provider}")
+        except urllib.error.HTTPError as exc:
+            if exc.code in (400, 404, 422):
+                continue
+            logger.warning("Clerk oauth token fetch failed for %s: %s", user_id, exc)
+            return None
+        except Exception as exc:
+            logger.warning("Clerk oauth token fetch failed for %s: %s", user_id, exc)
+            return None
+        rows = data.get("data") if isinstance(data, dict) else data
+        if isinstance(rows, list) and rows:
+            token = rows[0].get("token") if isinstance(rows[0], dict) else None
+            if token:
+                return str(token)
+    return None
+
+
 def _debit_lock(user_id: str) -> threading.Lock:
     with _debit_locks_guard:
         return _debit_locks.setdefault(user_id, threading.Lock())

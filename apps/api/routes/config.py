@@ -1,9 +1,9 @@
 """GET /api/config — drives the frontend's dropdowns.
 
 Reads the same model catalog the CLI uses (``tradingagents.llm_clients.model_catalog``)
-so the webapp never drifts from the CLI's options. The provider list mirrors
-the hard-coded one in ``cli/utils.py:select_llm_provider`` (kept in lockstep
-manually — that's a small constant table that rarely changes).
+so the webapp never drifts from the CLI's options. The provider list is the
+product's own three-provider surface (see ``_PROVIDERS``), not the CLI's full
+list — the CLI keeps every upstream provider.
 """
 from __future__ import annotations
 
@@ -37,18 +37,14 @@ def me(request: Request, user_id: str = Depends(current_user_id)) -> dict:
     }
 
 
-# (display, key, backend_url, capability flags) — mirrors cli/utils.py:233-244
+# (display, key, backend_url, capability flags). The product surface is
+# deliberately three providers — OpenAI on the server key (credits), the
+# ChatGPT-subscription helper (inserted first in get_config), and Gemini on
+# the user's own credential. Must stay in lockstep with
+# routes/runs.py:ALLOWED_PROVIDERS, which enforces this list server-side.
 _PROVIDERS = [
-    ("OpenAI",       "openai",     "https://api.openai.com/v1",                                   {"reasoning_effort": True}),
-    ("Google",       "google",     None,                                                           {"google_thinking": True}),
-    ("Anthropic",    "anthropic",  "https://api.anthropic.com/",                                   {"anthropic_effort": True}),
-    ("xAI",          "xai",        "https://api.x.ai/v1",                                          {}),
-    ("DeepSeek",     "deepseek",   "https://api.deepseek.com",                                     {}),
-    ("Qwen",         "qwen",       "https://dashscope.aliyuncs.com/compatible-mode/v1",            {}),
-    ("GLM",          "glm",        "https://open.bigmodel.cn/api/paas/v4/",                        {}),
-    ("OpenRouter",   "openrouter", "https://openrouter.ai/api/v1",                                 {}),
-    ("Azure OpenAI", "azure",      None,                                                           {}),
-    ("Ollama",       "ollama",     "http://localhost:11434/v1",                                    {}),
+    ("OpenAI",             "openai", "https://api.openai.com/v1", {"reasoning_effort": True}),
+    ("Gemini (your key)",  "google", None,                        {"google_thinking": True, "requires_user_key": True}),
 ]
 
 
@@ -106,6 +102,7 @@ def get_config() -> ConfigResponse:
             supports_reasoning_effort=caps.get("reasoning_effort", False),
             supports_google_thinking=caps.get("google_thinking", False),
             supports_anthropic_effort=caps.get("anthropic_effort", False),
+            requires_user_key=caps.get("requires_user_key", False),
         )
         for label, key, backend_url, caps in _PROVIDERS
     ]

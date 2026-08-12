@@ -29,22 +29,33 @@ DEFAULT_HELPER_URL = "http://127.0.0.1:8899/v1/codex"
 
 
 class HelperBackedGraph(TradingAgentsGraph):
-    """``TradingAgentsGraph`` that forwards an in-memory ``api_key``.
+    """``TradingAgentsGraph`` that forwards in-memory provider kwargs.
 
-    The key is held on the instance and injected into the provider kwargs, so it
-    reaches the LLM client without passing through config that gets serialized.
+    Credentials (helper token as ``api_key``, a user's Gemini key as
+    ``api_key``, a Google OAuth ``credentials`` object) are held on the
+    instance and injected into the provider kwargs, so they reach the LLM
+    client without passing through config that gets serialized.
     """
 
-    def __init__(self, *args: Any, api_key: Optional[str] = None, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        *args: Any,
+        api_key: Optional[str] = None,
+        provider_kwargs: Optional[dict[str, Any]] = None,
+        **kwargs: Any,
+    ) -> None:
         # Set before super().__init__, because the base constructor builds the
         # LLM clients and therefore calls _get_provider_kwargs immediately.
-        self._helper_api_key = api_key
+        self._extra_provider_kwargs = dict(provider_kwargs or {})
+        if api_key:
+            self._extra_provider_kwargs["api_key"] = api_key
         super().__init__(*args, **kwargs)
 
     def _get_provider_kwargs(self) -> dict[str, Any]:
         kwargs = super()._get_provider_kwargs()
-        if self._helper_api_key:
-            kwargs["api_key"] = self._helper_api_key
+        for key, value in self._extra_provider_kwargs.items():
+            if value:
+                kwargs[key] = value
         return kwargs
 
 

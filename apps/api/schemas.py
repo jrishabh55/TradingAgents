@@ -160,6 +160,9 @@ class ProviderOption(BaseModel):
     #: True for providers backed by a helper process the user must be running;
     #: the UI checks GET /api/helper/status before treating them as usable.
     requires_helper: bool = False
+    #: True for BYOC providers (Gemini): the user must have their own
+    #: credential — the UI checks GET /api/keys/gemini before allowing a run.
+    requires_user_key: bool = False
 
 
 class ModelOption(BaseModel):

@@ -63,7 +63,17 @@ services:
       WEBAPP_REPORTS_DIR: /home/appuser/.tradingagents/webapp_reports
       # Worker threads inside this one container. This is how you scale, NOT
       # replicas — see the comment on `deploy` below.
-      WEBAPP_CONCURRENCY: ${WEBAPP_CONCURRENCY:-4}
+      WEBAPP_CONCURRENCY: ${WEBAPP_CONCURRENCY:-10}
+      # Fernet key for encrypting user-pasted BYOC keys (Gemini) at rest.
+      # Generate: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+      # Unset → the paste-a-key path returns 503; OAuth-based Gemini still works.
+      WEBAPP_KEY_ENCRYPTION_SECRET: ${WEBAPP_KEY_ENCRYPTION_SECRET:-}
+      # GCP project for Gemini-via-Google-account runs (the OAuth token from
+      # Clerk's Google connection, cloud-platform scope, rides Vertex AI).
+      # Users need Vertex AI access on this project. That whole path is
+      # currently OFF (OAUTH_ENABLED in apps/api/user_keys.py) — Gemini runs
+      # on user-pasted keys only, so this can stay unset for now.
+      GOOGLE_CLOUD_PROJECT: ${GOOGLE_CLOUD_PROJECT:-}
       # Clerk supersedes this; kept empty so the legacy bearer mode stays off.
       WEBAPP_AUTH_TOKEN: ""
       # Same-origin through the web proxy, so no cross-origin browser calls.

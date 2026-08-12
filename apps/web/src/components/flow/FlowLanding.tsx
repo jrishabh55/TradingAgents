@@ -4,6 +4,7 @@ import { api, noMarketDataDetail } from '#/lib/api'
 import { ratingTooltip } from '#/lib/rating'
 import type {
   ConfigResponse,
+  GeminiKeyStatus,
   HelperStatus,
   PairResponse,
   RunRequest,
@@ -11,6 +12,7 @@ import type {
 } from '#/lib/types'
 import { Topbar } from '#/components/shared/Topbar'
 import { FlowAdvanced } from './FlowAdvanced'
+import { GeminiSetup } from './GeminiSetup'
 
 const TICKER_SUFFIXES: { s: string; l: string }[] = [
   { s: '.NS', l: 'NSE' },
@@ -53,7 +55,6 @@ export interface FlowState {
   deepThinker: string
   language: string
   reasoningEffort?: string
-  backendUrl?: string
   checkpoint: boolean
 }
 
@@ -70,6 +71,10 @@ export function FlowLanding() {
   /* Fetched once when a `requires_helper` provider is selected; null while
      no such provider is active (or the fetch is in flight). */
   const [helperStatus, setHelperStatus] = useState<HelperStatus | null>(null)
+  /* Same idea for `requires_user_key` (Gemini BYOC). `geminiRefresh` bumps to
+     refetch after a key save/remove. */
+  const [geminiStatus, setGeminiStatus] = useState<GeminiKeyStatus | null>(null)
+  const [geminiRefresh, setGeminiRefresh] = useState(0)
 
   const today = useMemo(() => new Date().toISOString().slice(0, 10), [])
   const [form, setForm] = useState<FlowState>({
@@ -151,6 +156,37 @@ export function FlowLanding() {
   const helperBlocked =
     !!selectedProvider?.requires_helper && helperStatus?.connected !== true
 
+  /* A BYOC provider (Gemini) with no resolvable credential fails at submit —
+     block until the status probe reports a usable source (null = in flight,
+     also blocked). */
+  const geminiBlocked =
+    !!selectedProvider?.requires_user_key && geminiStatus?.active_source == null
+
+  /* Fetch the Gemini credential state when a BYOC provider is selected;
+     `geminiRefresh` re-runs this after GeminiSetup saves/removes a key. */
+  useEffect(() => {
+    setGeminiStatus(null)
+    if (!selectedProvider?.requires_user_key) return
+    let stale = false
+    api
+      .getGeminiKeyStatus()
+      .then((s) => {
+        if (!stale) setGeminiStatus(s)
+      })
+      .catch(() => {
+        if (!stale)
+          setGeminiStatus({
+            manual_key: false,
+            oauth_available: false,
+            oauth_ok: false,
+            active_source: null,
+          })
+      })
+    return () => {
+      stale = true
+    }
+  }, [selectedProvider?.requires_user_key, form.provider, geminiRefresh])
+
   /* Check helper reachability when a helper-backed provider is selected,
      then re-probe every 3s until it connects — the setup card's "waiting"
      line goes live and the `helperBlocked` gate opens without a refresh.
@@ -200,7 +236,7 @@ export function FlowLanding() {
   }
 
   async function startRun(tickerOverride?: string) {
-    if (!config || helperBlocked) return
+    if (!config || helperBlocked || geminiBlocked) return
     setSubmitting(true)
     setError(null)
     setTickerSuggestions([])
@@ -211,7 +247,9 @@ export function FlowLanding() {
       analysts: form.analysts,
       research_depth: form.depth,
       llm_provider: form.provider,
-      backend_url: form.backendUrl || provider?.backend_url || null,
+      /* The server dictates each provider's endpoint and ignores this field;
+         null keeps the cache key stable across clients. */
+      backend_url: null,
       shallow_thinker: form.shallowThinker,
       deep_thinker: form.deepThinker,
       output_language: form.language,
@@ -274,6 +312,8 @@ export function FlowLanding() {
           config={config}
           submitting={submitting}
           helperStatus={helperStatus}
+          geminiStatus={geminiStatus}
+          onGeminiChanged={() => setGeminiRefresh((n) => n + 1)}
           onClose={() => setShowAdvanced(false)}
           /* Same reason as the button below — FlowAdvanced wires this straight
              to onClick, so an unwrapped startRun would receive the event. */
@@ -375,7 +415,12 @@ export function FlowLanding() {
                   /* Wrapped, not passed directly: React would hand the
                      MouseEvent to startRun's tickerOverride parameter. */
                   onClick={() => startRun()}
-                  disabled={submitting || helperBlocked || form.analysts.length === 0}
+                  disabled={
+                    submitting ||
+                    helperBlocked ||
+                    geminiBlocked ||
+                    form.analysts.length === 0
+                  }
                 >
                   {submitting ? 'Starting…' : 'Start analysis →'}
                 </button>
@@ -485,6 +530,21 @@ export function FlowLanding() {
                 }}
               >
                 <HelperSetup status={helperStatus} />
+              </div>
+            )}
+
+            {selectedProvider?.requires_user_key && (
+              <div
+                style={{
+                  marginTop: 12,
+                  display: 'flex',
+                  justifyContent: 'center',
+                }}
+              >
+                <GeminiSetup
+                  status={geminiStatus}
+                  onChanged={() => setGeminiRefresh((n) => n + 1)}
+                />
               </div>
             )}
 

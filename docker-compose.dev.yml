@@ -47,7 +47,7 @@ services:
       # Dev-friendly concurrency. Per-user serialization in the runner
       # makes >1 safe across users; bump this if you simulate multiple
       # sign-ins concurrently. See apps/api/jobs/runner.py.
-      WEBAPP_CONCURRENCY: "4"
+      WEBAPP_CONCURRENCY: "10"
       # Open CORS for the dev origin. Tightening this in prod is fine
       # because the Cloudflare worker proxies same-origin.
       WEBAPP_CORS_ORIGINS: "*"
