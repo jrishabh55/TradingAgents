@@ -82,16 +82,16 @@ def test_helper_is_listed_even_when_not_running(without_helper):
     assert c.models_by_provider[HELPER_PROVIDER_KEY]
 
 
-def test_existing_providers_are_untouched_by_the_addition(with_helper):
-    """Adding the helper must not disturb the hand-maintained table — those
-    backend URLs are deliberate (e.g. Qwen's China vs international endpoints
-    use non-interchangeable credentials)."""
+def test_provider_surface_is_the_three_product_providers(with_helper):
+    """The product deliberately offers exactly three providers: the helper
+    (ChatGPT subscription), OpenAI on the server key, and Gemini BYOC."""
     c = get_config()
-    assert [p.key for p in c.providers[1:]] == ORIGINAL_KEYS
+    assert [p.key for p in c.providers] == [HELPER_PROVIDER_KEY, "openai", "google"]
     by_key = {p.key: p for p in c.providers}
-    assert by_key["qwen"].backend_url == "https://dashscope.aliyuncs.com/compatible-mode/v1"
     assert by_key["openai"].supports_reasoning_effort is True
     assert by_key["google"].supports_google_thinking is True
+    assert by_key["google"].requires_user_key is True
+    assert by_key["openai"].requires_user_key is False
 
 
 def test_helper_models_come_from_the_quirks_row_not_a_hardcoded_list(with_helper):

@@ -1,5 +1,6 @@
 import type {
   ConfigResponse,
+  GeminiKeyStatus,
   HelperStatus,
   LevelsParams,
   LevelsResponse,
@@ -152,6 +153,15 @@ export const api = {
   resumeRun: (id: string) =>
     jsonFetch<RunDetail>(`/runs/${id}/resume`, { method: 'POST' }),
   getHelperStatus: () => jsonFetch<HelperStatus>('/helper/status'),
+  /* Gemini BYOC credential — the key itself never comes back, only last4. */
+  getGeminiKeyStatus: () => jsonFetch<GeminiKeyStatus>('/keys/gemini'),
+  saveGeminiKey: (apiKey: string) =>
+    jsonFetch<GeminiKeyStatus>('/keys/gemini', {
+      method: 'PUT',
+      body: JSON.stringify({ api_key: apiKey }),
+    }),
+  deleteGeminiKey: () =>
+    jsonFetch<{ deleted: boolean }>('/keys/gemini', { method: 'DELETE' }),
   /* Mint a helper pairing token. The token is shown once and never
      retrievable again; `command` is ready to paste into a shell. */
   pairHelper: () => jsonFetch<PairResponse>('/relay/pair', { method: 'POST' }),

@@ -35,6 +35,10 @@ from apps.api.schemas import (
 
 router = APIRouter()
 
+#: The product's provider surface: OpenAI on the server key (paid in credits),
+#: the ChatGPT-subscription helper, and Gemini on the user's own credential.
+ALLOWED_PROVIDERS = {"openai", "google", "chatgpt_helper"}
+
 
 def _user_owns(detail: RunDetail, user_id: str) -> bool:
     """Whether ``detail`` belongs to ``user_id``.
@@ -91,6 +95,17 @@ def create_run(
     with HTTP 201. The new run is owned by ``user_id`` (resolved by the auth
     middleware).
     """
+    # Only the three product providers are accepted. Server-side on purpose:
+    # trimming the UI dropdown alone would still let a direct API call run
+    # e.g. "anthropic" against whatever server-side env keys exist.
+    provider = (request.llm_provider or "").strip().lower()
+    if provider not in ALLOWED_PROVIDERS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"unsupported llm_provider '{request.llm_provider}' — "
+                   f"use one of: {', '.join(sorted(ALLOWED_PROVIDERS))}",
+        )
+
     # Validate analysis_date — cheap, would otherwise fail deep inside the graph.
     try:
         d = datetime.strptime(request.analysis_date, "%Y-%m-%d").date()
@@ -127,6 +142,20 @@ def create_run(
             ),
         )
 
+    # Same idea for Gemini BYOC: a run with no user credential fails at graph
+    # construction, so reject it here with the fix instead.
+    if provider == "google":
+        from apps.api import user_keys
+
+        if not user_keys.gemini_credential_available(user_id):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Gemini runs use your own API key — paste one in the "
+                    "model settings"
+                ),
+            )
+
     # Resolve prices before spending anything. Runs after the cache lookup so a
     # cache hit stays instant, and before the active-run guard so a typo can't
     # occupy the per-user ticker slot. On success this warms the OHLCV cache the
@@ -158,12 +187,18 @@ def create_run(
                    "Wait for it to finish before starting another.",
         )
 
-    # Credits: 1 per fresh pipeline run, debited last on purpose — cache hits,
-    # validation failures, helper 409s, and preflight rejections above never
-    # cost anything. Resume stays free (it's failure recovery, already capped
-    # by MAX_RESUMES). Synthetic users (legacy bearer / open mode) have no
-    # Clerk record, so the gate only applies to real Clerk users.
-    if clerk_users.enabled() and user_id not in (ANONYMOUS_USER_ID, SHARED_BEARER_USER_ID):
+    # Credits: 1 per fresh OPENAI pipeline run, debited last on purpose — cache
+    # hits, validation failures, helper 409s, and preflight rejections above
+    # never cost anything. Helper and Gemini BYOC runs are free: the user's own
+    # subscription/credential pays the LLM bill, not the server's key. Resume
+    # stays free (it's failure recovery, already capped by MAX_RESUMES).
+    # Synthetic users (legacy bearer / open mode) have no Clerk record, so the
+    # gate only applies to real Clerk users.
+    if (
+        provider == "openai"
+        and clerk_users.enabled()
+        and user_id not in (ANONYMOUS_USER_ID, SHARED_BEARER_USER_ID)
+    ):
         try:
             remaining = clerk_users.debit_credit(user_id)
         except HTTPException:

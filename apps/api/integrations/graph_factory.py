@@ -142,6 +142,15 @@ def build_graph_for_request(
                 "no helper is available for this run: no local helper is "
                 "configured and your helper is not connected to the relay"
             )
+    elif config["llm_provider"] == "google":
+        # Gemini is BYOC: the user's own credential (stored key, or their
+        # Google OAuth token via Clerk) rides the same in-memory injection
+        # path as the helper token. A server-side GOOGLE_API_KEY env can
+        # never silently pay for a user's run — no credential means no graph.
+        from apps.api.user_keys import resolve_gemini_provider_kwargs
+
+        graph_cls = HelperBackedGraph
+        extra["provider_kwargs"] = resolve_gemini_provider_kwargs(user_id or "")
 
     try:
         graph = graph_cls(
@@ -211,8 +220,15 @@ def _build_config(request: RunRequest, *, user_id: Optional[str] = None) -> Dict
     config["max_risk_discuss_rounds"] = request.research_depth
     config["quick_think_llm"] = request.shallow_thinker
     config["deep_think_llm"] = request.deep_thinker
-    config["backend_url"] = request.backend_url
     config["llm_provider"] = request.llm_provider.lower()
+    # The SERVER dictates the endpoint per provider. request.backend_url is
+    # deliberately ignored: honouring it would let a caller point the server's
+    # OPENAI_API_KEY at an arbitrary host and collect it (same reasoning as
+    # the helper branch in build_graph_for_request). Google gets None — the
+    # client library knows its own endpoint; the helper URL is set later.
+    config["backend_url"] = {
+        "openai": "https://api.openai.com/v1",
+    }.get(config["llm_provider"])
     config["google_thinking_level"] = request.google_thinking_level
     config["openai_reasoning_effort"] = request.openai_reasoning_effort
     config["anthropic_effort"] = request.anthropic_effort

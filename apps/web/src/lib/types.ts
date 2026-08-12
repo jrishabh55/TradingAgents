@@ -63,6 +63,20 @@ export interface ProviderOption {
   /* Provider proxies through a helper process the user runs locally
      (e.g. `chatgpt_helper`). Absent/false for normal providers. */
   requires_helper?: boolean
+  /* BYOC provider (Gemini): the user must bring their own credential —
+     the UI checks GET /keys/gemini before allowing a run. */
+  requires_user_key?: boolean
+}
+
+/* GET /keys/gemini — the user's Gemini credential state. `active_source`
+   is what a run would use right now; null blocks submission. */
+export interface GeminiKeyStatus {
+  manual_key: boolean
+  last4?: string | null
+  oauth_available: boolean
+  oauth_ok: boolean
+  oauth_error?: string | null
+  active_source: 'manual' | 'oauth' | null
 }
 
 /* GET /helper/status — whether the user's local helper is reachable. */

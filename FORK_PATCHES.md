@@ -121,7 +121,23 @@ losing functionality.
 
 **Migration plan:** Keep.
 
-### 7. `pyproject.toml`
+### 7. `tradingagents/llm_clients/google_client.py`
+
+**Change:** One-word edit to `GoogleClient.get_llm` — added `"credentials"` to the
+tuple of kwargs forwarded to `ChatGoogleGenerativeAI`. Approximate location: line 34.
+
+**Why:** Gemini BYOC in the web layer. A user's Google OAuth access token (fetched
+from Clerk) has to reach the LLM as a `google.oauth2.credentials.Credentials`
+object; `ChatGoogleGenerativeAI` accepts a `credentials` kwarg but the client's
+passthrough whitelist dropped it. The object is injected per run by
+`apps/api/integrations/helper_backend.HelperBackedGraph`, never via config.
+
+**Conflict risk:** Low. Single string added to an existing tuple.
+
+**Migration plan:** Keep, or send upstream — forwarding `credentials` is generally
+useful.
+
+### 8. `pyproject.toml`
 
 **Change:** Added `pythonpath = ["."]` under `[tool.pytest.ini_options]`.
 

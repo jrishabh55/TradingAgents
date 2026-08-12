@@ -45,7 +45,9 @@ Open <http://localhost:8080>.
 | Variable | Default | Purpose |
 |---|---|---|
 | `WEBAPP_DB_PATH` | `~/.tradingagents/webapp.sqlite` | SQLite file for runs + events. |
-| `WEBAPP_CONCURRENCY` | `1` | Worker pool size. Bump only if you understand the memory-log race. |
+| `WEBAPP_CONCURRENCY` | `10` | Worker pool size. Safe across users (per-user memory logs + per-user run locks). |
+| `WEBAPP_KEY_ENCRYPTION_SECRET` | (unset) | Fernet key for encrypting user-pasted BYOC keys (Gemini) at rest. Generate: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. Unset → the paste-a-key path returns 503. |
+| `GOOGLE_CLOUD_PROJECT` | (unset) | GCP project for Gemini-via-Google-account runs (Clerk OAuth token with `cloud-platform` scope → Vertex AI). Only relevant once that path is re-enabled (`OAUTH_ENABLED` in `apps/api/user_keys.py`, currently off — Gemini uses pasted keys only). |
 | `WEBAPP_AUTH_TOKEN` | (unset) | Legacy: shared bearer token. Superseded by Clerk JWT when `CLERK_JWKS_URL` is set. |
 | `CLERK_JWKS_URL` | (unset) | Clerk JWKS endpoint, e.g. `https://<your-app>.clerk.accounts.dev/.well-known/jwks.json`. When set, every `/api/*` request must carry a valid Clerk JWT. |
 | `CLERK_ISSUER` | (unset) | Expected `iss` claim value, e.g. `https://<your-app>.clerk.accounts.dev`. |
@@ -54,7 +56,7 @@ Open <http://localhost:8080>.
 | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, … | — | LLM provider credentials. Same keys the CLI uses. |
 | `TRADINGAGENTS_RESULTS_DIR`, `TRADINGAGENTS_CACHE_DIR`, `TRADINGAGENTS_MEMORY_LOG_PATH` | — | Override upstream paths (memory log, cache). |
 
-API keys must come from environment — there is no UI for entering them. Mount `.env` via `env_file` (see compose file) or pass them with `-e` to `docker run`.
+Server-side API keys come from environment. The one exception is Gemini, which is BYOC: users paste their own Gemini API key in the UI (stored Fernet-encrypted, see `WEBAPP_KEY_ENCRYPTION_SECRET`). An automatic Google-account path exists but ships disabled (`OAUTH_ENABLED` in `apps/api/user_keys.py`).
 
 ---
 
@@ -120,7 +122,7 @@ If you put nginx / Caddy / Cloudflare in front of this:
 
 ## Operational notes
 
-- **Single-tenant by default.** `WEBAPP_CONCURRENCY=1` and an HTTP 409 on same-ticker collisions prevents two graphs from racing the memory log. If you raise it, you are responsible for serialising memory-log writes some other way.
+- **Concurrent by default.** `WEBAPP_CONCURRENCY=10`; per-user memory-log paths plus the runner's per-user lock keep parallel runs isolated. Same-user same-ticker double-submits still get an HTTP 409.
 - **API keys are never logged.** The runner redacts any key containing `key`/`token`/`secret` before publishing the `run.started` event. Don't add new ones to the log paths.
 - **No mid-run interactivity.** The graph never stops to ask the user a question — every choice is collected upfront in the form and frozen into the run config.
 - **Cancel is cooperative**, not preemptive. LangGraph doesn't expose mid-step cancellation; the runner checks the cancel flag between chunks (between agents).

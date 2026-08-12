@@ -463,9 +463,10 @@ _runner: Optional[JobRunner] = None
 def get_runner() -> JobRunner:
     global _runner
     if _runner is None:
-        # Default 4: safe across users now that each has their own memory log.
+        # Default 10: safe across users now that each has their own memory log,
+        # and the operator's OpenAI tier absorbs the parallel call volume.
         # Same-user runs are serialized by the per-user lock inside the runner.
-        concurrency = int(os.environ.get("WEBAPP_CONCURRENCY", "4"))
+        concurrency = int(os.environ.get("WEBAPP_CONCURRENCY", "10"))
         _runner = JobRunner(store=get_store(), bus=get_bus(), concurrency=concurrency)
     return _runner
 

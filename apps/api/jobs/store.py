@@ -77,6 +77,17 @@ CREATE TABLE IF NOT EXISTS relay_pair_tokens (
     user_id    TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
+
+-- Per-user BYOC API keys (e.g. a pasted Gemini key). Values are Fernet
+-- ciphertext produced by apps/api/user_keys.py, so a copy of this DB does not
+-- reveal anyone's key.
+CREATE TABLE IF NOT EXISTS user_api_keys (
+    user_id    TEXT NOT NULL,
+    provider   TEXT NOT NULL,
+    ciphertext TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, provider)
+);
 """
 
 _SCHEMA_INDEXES = """
@@ -402,6 +413,36 @@ class JobStore:
                 "DELETE FROM relay_pair_tokens WHERE user_id=?", (user_id,)
             )
             return cur.rowcount or 0
+
+    # ---------- per-user BYOC keys ----------
+
+    def set_user_key(self, user_id: str, provider: str, ciphertext: str) -> None:
+        """Upsert the encrypted API key for ``(user_id, provider)``."""
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT INTO user_api_keys (user_id, provider, ciphertext, created_at)"
+                " VALUES (?, ?, ?, ?)"
+                " ON CONFLICT(user_id, provider) DO UPDATE SET"
+                " ciphertext=excluded.ciphertext, created_at=excluded.created_at",
+                (user_id, provider, ciphertext, _utcnow()),
+            )
+
+    def get_user_key(self, user_id: str, provider: str) -> Optional[str]:
+        """The stored ciphertext, or None. Decryption lives in user_keys.py."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT ciphertext FROM user_api_keys WHERE user_id=? AND provider=?",
+                (user_id, provider),
+            ).fetchone()
+        return row["ciphertext"] if row is not None else None
+
+    def delete_user_key(self, user_id: str, provider: str) -> bool:
+        with self._conn() as conn:
+            cur = conn.execute(
+                "DELETE FROM user_api_keys WHERE user_id=? AND provider=?",
+                (user_id, provider),
+            )
+            return bool(cur.rowcount)
 
     def has_active_run_for_ticker(
         self, ticker: str, *, user_id: Optional[str] = None

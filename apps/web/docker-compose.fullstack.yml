@@ -32,7 +32,7 @@ services:
     environment:
       WEBAPP_DB_PATH: /home/appuser/.tradingagents/webapp.sqlite
       WEBAPP_REPORTS_DIR: /home/appuser/.tradingagents/webapp_reports
-      WEBAPP_CONCURRENCY: "4"
+      WEBAPP_CONCURRENCY: "10"
       WEBAPP_AUTH_TOKEN: ""
       # Allow the web app to call from a different origin during local dev. In
       # prod this is unnecessary because the worker proxies same-origin.
