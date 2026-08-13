@@ -36,5 +36,8 @@ def is_trading_day(d: date) -> bool:
 
 
 def is_market_open(now: datetime | None = None) -> bool:
-    now = (now or datetime.now(IST)).astimezone(IST)
+    now = now or datetime.now(IST)
+    if now.tzinfo is None:
+        raise ValueError("is_market_open requires a timezone-aware datetime")
+    now = now.astimezone(IST)
     return is_trading_day(now.date()) and OPEN <= now.time() <= CLOSE
