@@ -10,12 +10,18 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ScannersIndexRouteImport } from './routes/scanners.index'
 import { Route as RunsIdRouteImport } from './routes/runs.$id'
 import { Route as ApiSplatRouteImport } from './routes/api.$'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ScannersIndexRoute = ScannersIndexRouteImport.update({
+  id: '/scanners/',
+  path: '/scanners/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const RunsIdRoute = RunsIdRouteImport.update({
@@ -33,30 +39,34 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/api/$': typeof ApiSplatRoute
   '/runs/$id': typeof RunsIdRoute
+  '/scanners/': typeof ScannersIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/api/$': typeof ApiSplatRoute
   '/runs/$id': typeof RunsIdRoute
+  '/scanners': typeof ScannersIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/api/$': typeof ApiSplatRoute
   '/runs/$id': typeof RunsIdRoute
+  '/scanners/': typeof ScannersIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/api/$' | '/runs/$id'
+  fullPaths: '/' | '/api/$' | '/runs/$id' | '/scanners/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/$' | '/runs/$id'
-  id: '__root__' | '/' | '/api/$' | '/runs/$id'
+  to: '/' | '/api/$' | '/runs/$id' | '/scanners'
+  id: '__root__' | '/' | '/api/$' | '/runs/$id' | '/scanners/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ApiSplatRoute: typeof ApiSplatRoute
   RunsIdRoute: typeof RunsIdRoute
+  ScannersIndexRoute: typeof ScannersIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -66,6 +76,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/scanners/': {
+      id: '/scanners/'
+      path: '/scanners'
+      fullPath: '/scanners/'
+      preLoaderRoute: typeof ScannersIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/runs/$id': {
@@ -89,6 +106,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ApiSplatRoute: ApiSplatRoute,
   RunsIdRoute: RunsIdRoute,
+  ScannersIndexRoute: ScannersIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
