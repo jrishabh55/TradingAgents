@@ -11,8 +11,10 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ScannersIndexRouteImport } from './routes/scanners.index'
+import { Route as ScannersNewRouteImport } from './routes/scanners.new'
 import { Route as RunsIdRouteImport } from './routes/runs.$id'
 import { Route as ApiSplatRouteImport } from './routes/api.$'
+import { Route as ScannersIdEditRouteImport } from './routes/scanners.$id.edit'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -22,6 +24,11 @@ const IndexRoute = IndexRouteImport.update({
 const ScannersIndexRoute = ScannersIndexRouteImport.update({
   id: '/scanners/',
   path: '/scanners/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ScannersNewRoute = ScannersNewRouteImport.update({
+  id: '/scanners/new',
+  path: '/scanners/new',
   getParentRoute: () => rootRouteImport,
 } as any)
 const RunsIdRoute = RunsIdRouteImport.update({
@@ -34,39 +41,71 @@ const ApiSplatRoute = ApiSplatRouteImport.update({
   path: '/api/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ScannersIdEditRoute = ScannersIdEditRouteImport.update({
+  id: '/scanners/$id/edit',
+  path: '/scanners/$id/edit',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/api/$': typeof ApiSplatRoute
   '/runs/$id': typeof RunsIdRoute
+  '/scanners/new': typeof ScannersNewRoute
   '/scanners/': typeof ScannersIndexRoute
+  '/scanners/$id/edit': typeof ScannersIdEditRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/api/$': typeof ApiSplatRoute
   '/runs/$id': typeof RunsIdRoute
+  '/scanners/new': typeof ScannersNewRoute
   '/scanners': typeof ScannersIndexRoute
+  '/scanners/$id/edit': typeof ScannersIdEditRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/api/$': typeof ApiSplatRoute
   '/runs/$id': typeof RunsIdRoute
+  '/scanners/new': typeof ScannersNewRoute
   '/scanners/': typeof ScannersIndexRoute
+  '/scanners/$id/edit': typeof ScannersIdEditRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/api/$' | '/runs/$id' | '/scanners/'
+  fullPaths:
+    | '/'
+    | '/api/$'
+    | '/runs/$id'
+    | '/scanners/new'
+    | '/scanners/'
+    | '/scanners/$id/edit'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/$' | '/runs/$id' | '/scanners'
-  id: '__root__' | '/' | '/api/$' | '/runs/$id' | '/scanners/'
+  to:
+    | '/'
+    | '/api/$'
+    | '/runs/$id'
+    | '/scanners/new'
+    | '/scanners'
+    | '/scanners/$id/edit'
+  id:
+    | '__root__'
+    | '/'
+    | '/api/$'
+    | '/runs/$id'
+    | '/scanners/new'
+    | '/scanners/'
+    | '/scanners/$id/edit'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ApiSplatRoute: typeof ApiSplatRoute
   RunsIdRoute: typeof RunsIdRoute
+  ScannersNewRoute: typeof ScannersNewRoute
   ScannersIndexRoute: typeof ScannersIndexRoute
+  ScannersIdEditRoute: typeof ScannersIdEditRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -85,6 +124,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ScannersIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/scanners/new': {
+      id: '/scanners/new'
+      path: '/scanners/new'
+      fullPath: '/scanners/new'
+      preLoaderRoute: typeof ScannersNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/runs/$id': {
       id: '/runs/$id'
       path: '/runs/$id'
@@ -99,6 +145,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/scanners/$id/edit': {
+      id: '/scanners/$id/edit'
+      path: '/scanners/$id/edit'
+      fullPath: '/scanners/$id/edit'
+      preLoaderRoute: typeof ScannersIdEditRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -106,7 +159,9 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ApiSplatRoute: ApiSplatRoute,
   RunsIdRoute: RunsIdRoute,
+  ScannersNewRoute: ScannersNewRoute,
   ScannersIndexRoute: ScannersIndexRoute,
+  ScannersIdEditRoute: ScannersIdEditRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

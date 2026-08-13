@@ -64,9 +64,7 @@ function ScannersPage() {
               {editable && (
                 <>
                   <Button size="sm" variant="outline" asChild>
-                    {/* Route added in Task 15 (scanner builder) — cast until
-                        it's registered in routeTree.gen.ts. */}
-                    <Link to={'/scanners/$id/edit' as any} params={{ id: s.id } as any}>
+                    <Link to="/scanners/$id/edit" params={{ id: s.id }}>
                       Edit
                     </Link>
                   </Button>
@@ -87,9 +85,7 @@ function ScannersPage() {
       <main className="mx-auto max-w-6xl space-y-8 p-4">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">Scanners</h1>
-          {/* Route added in Task 15 (scanner builder) — cast until it's
-              registered in routeTree.gen.ts. */}
-          <Button asChild><Link to={'/scanners/new' as any}>New scanner</Link></Button>
+          <Button asChild><Link to="/scanners/new">New scanner</Link></Button>
         </div>
         {section('Prebuilt', prebuilt, false)}
         {section('My scanners', mine, true)}
