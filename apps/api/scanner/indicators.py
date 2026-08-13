@@ -55,7 +55,10 @@ def _eval(op: Operand, p: Panel, cond_eval) -> Result:
                                     (len(p.close.index), 1)),
                             index=p.close.index, columns=p.close.columns)
     if op.meta is not None:
-        return p.meta[op.meta] if op.meta in p.meta else pd.Series(index=p.meta.index, dtype=object)
+        # "index" is the user-facing meta name; the store column backing it
+        # is "index_memberships" (a list-per-symbol column).
+        name = "index_memberships" if op.meta == "index" else op.meta
+        return p.meta[name] if name in p.meta else pd.Series(index=p.meta.index, dtype=object)
     if op.pattern is not None:
         from apps.api.scanner.patterns import pattern_frame
         return pattern_frame(op.pattern, p)

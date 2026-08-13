@@ -26,8 +26,16 @@ PATTERNS = {"doji", "hammer", "inverted_hammer", "shooting_star", "hanging_man",
             "three_white_soldiers", "three_black_crows", "piercing", "dark_cloud_cover"}
 FUNDAMENTALS = {"market_cap", "pe", "pb", "roe", "dividend_yield", "eps",
                 "debt_to_equity", "revenue_growth"}
-METAS = {"sector", "industry", "index", "fno"}
+METAS = {"sector", "industry", "index"}
 EXPR_OPS = {"+", "-", "*", "/", "abs", "min", "max"}
+#: Per-function component whitelist — trust boundary for the `component`
+#: field. Functions not listed here don't accept a component at all.
+COMPONENTS = {
+    "MACD": {"line", "signal", "hist"},
+    "BBANDS": {"upper", "mid", "lower"},
+    "STOCH": {"k", "d"},
+    "ADX": {"adx", "pdi", "mdi"},
+}
 
 MAX_PERIOD = 500
 MAX_NODES = 50
@@ -78,6 +86,12 @@ class Operand(BaseModel):
                 raise ValueError(f"{self.fn} needs period")
             if isinstance(self.of, str) and self.of not in FIELDS:
                 raise ValueError(f"unknown base field {self.of!r}")
+            if self.component is not None:
+                allowed = COMPONENTS.get(self.fn)
+                if allowed is None:
+                    raise ValueError(f"{self.fn} does not take a component")
+                if self.component not in allowed:
+                    raise ValueError(f"unknown component {self.component!r} for {self.fn}")
         if self.expr is not None and (self.expr not in EXPR_OPS or not self.args):
             raise ValueError("expr needs a known operator and args")
         if self.fundamental is not None and self.fundamental not in FUNDAMENTALS:
@@ -133,6 +147,8 @@ class Condition(BaseModel):
             if self.op == "in":
                 if self.right.const_list is None:
                     raise ValueError("'in' requires a const_list right operand")
+                if self.left.meta is None:
+                    raise ValueError("'in' requires a meta left operand")
             else:
                 if self.right.const_list is not None:
                     raise ValueError("const_list is only valid with the 'in' operator")

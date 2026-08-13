@@ -11,7 +11,7 @@ Routes:
 """
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ValidationError
@@ -90,15 +90,25 @@ def delete_scanner(sid: str, user_id: str = Depends(current_user_id)) -> None:
     get_scanner_store().delete_scanner(sid)
 
 
+def _run_or_422(definition: Group) -> dict:
+    try:
+        return get_engine().run(definition)
+    except (ValueError, KeyError, IndexError) as exc:
+        # Point-fixes in engine.py/indicators.py/schema.py should prevent
+        # these on validated input; this is a backstop so any residual
+        # engine throw comes back as a clean 422, not a 500.
+        raise HTTPException(status_code=422, detail=f"scan failed: {exc}")
+
+
 @router.post("/scanners/preview")
 def preview(body: PreviewBody, user_id: str = Depends(current_user_id)) -> dict:
-    return get_engine().run(_parse_or_422(body.definition))
+    return _run_or_422(_parse_or_422(body.definition))
 
 
 @router.post("/scanners/{sid}/run")
 def run_scanner(sid: str, user_id: str = Depends(current_user_id)) -> dict:
     scanner = _owned_or_error(sid, user_id, for_write=False)
-    return get_engine().run(_parse_or_422(scanner["definition"]))
+    return _run_or_422(_parse_or_422(scanner["definition"]))
 
 
 @router.post("/scanners/nl")

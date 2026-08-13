@@ -160,6 +160,34 @@ def test_get_engine_rebinds(tmp_path):
     assert engine2._store is not store1
 
 
+def test_meta_index_membership_matches(tmp_path):
+    # scanner_utils seeds index_memberships=["NIFTY500"] for every symbol.
+    store = make_store(tmp_path, {"A": [101.0] * 30})
+    d = AND({"timeframe": "1d", "left": {"meta": "index"}, "op": "in",
+             "right": {"const_list": ["NIFTY500"]}})
+    assert [m["symbol"] for m in run(store, d)["matches"]] == ["A"]
+
+
+def test_meta_index_empty_membership_no_match_no_crash(tmp_path):
+    store = make_store(tmp_path, {"A": [101.0] * 30, "B": [101.0] * 30})
+    store.upsert_instruments([
+        {"symbol": "B", "yf_symbol": "B.NS", "name": "B", "sector": "Test",
+         "industry": "Test", "market_cap": 5000.0, "index_memberships": [],
+         "fno": False, "fundamentals": {"pe": 20.0}},
+    ])
+    d = AND({"timeframe": "1d", "left": {"meta": "index"}, "op": "in",
+             "right": {"const_list": ["NIFTY500"]}})
+    res = run(store, d)
+    assert [m["symbol"] for m in res["matches"]] == ["A"]
+
+
+def test_run_empty_bars_returns_empty_result(tmp_path):
+    store = make_store(tmp_path)
+    _seed_instruments(store, ["A", "B"])  # instruments exist, zero bars
+    res = run(store, AND(C()))
+    assert res == {"data_as_of": "", "universe": 0, "matches": []}
+
+
 def test_multi_timeframe_asymmetric_symbols(tmp_path):
     store = make_store(tmp_path, {"A": [101.0] * 30, "B": [101.0] * 30})
     store.upsert_bars("15m", bars_long("A", [201.0] * 30, freq_minutes=15))

@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 
 from apps.api.scanner.schema import (
     EXPR_OPS, FIELDS, FUNCTIONS, FUNDAMENTALS, METAS, PATTERNS, TIMEFRAMES,
@@ -31,7 +30,7 @@ Pattern conditions are {{"timeframe": tf, "left": {{"pattern": name}}}} with no 
 Timeframes: {", ".join(TIMEFRAMES)} (default "1d").
 Operators: > < >= <= == != in crosses_above crosses_below.
 Operand kinds (exactly one per operand):
-  {{"const": number}} | {{"const_str": "text"}} | {{"field": name}} | {{"fundamental": name}} | {{"meta": name}} | {{"pattern": name}}
+  {{"const": number}} | {{"const_str": "text"}} | {{"const_list": ["a","b"]}} (only valid as the right operand of 'in', paired with a "meta" left operand) | {{"field": name}} | {{"fundamental": name}} | {{"meta": name}} | {{"pattern": name}}
   {{"fn": NAME, "of": field, "period": n}} — optional "component" (MACD: line/signal/hist; BBANDS: upper/mid/lower; STOCH: k/d; ADX: adx/pdi/mdi), optional "params" (MACD fast/slow/signal, BBANDS std, SUPERTREND mult)
   {{"expr": "*", "args": [...]}} for arithmetic ({", ".join(sorted(EXPR_OPS))})
   Any operand may add "bars_ago": n.

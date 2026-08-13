@@ -69,6 +69,19 @@ def test_run_and_preview_return_matches(env):
     assert [m["symbol"] for m in r2.json()["matches"]] == ["HI"]
 
 
+def test_engine_error_returns_422_not_500(env, monkeypatch):
+    client, _, _ = env
+
+    class BoomEngine:
+        def run(self, definition):
+            raise KeyError("boom")
+
+    monkeypatch.setattr(scanners_module, "get_engine", lambda: BoomEngine())
+    r = client.post("/api/scanners/preview", json={"definition": DEF})
+    assert r.status_code == 422
+    assert "scan failed" in r.json()["detail"]
+
+
 def test_invalid_definition_422(env):
     client, _, _ = env
     bad = {"logic": "AND", "children": [

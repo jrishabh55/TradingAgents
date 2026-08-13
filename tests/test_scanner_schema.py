@@ -128,6 +128,24 @@ def test_op_operand_cross_validation():
     assert g.children[0].right.const_list == ["IT", "Banking"]
 
 
+def test_in_requires_meta_left_operand():
+    with pytest.raises(ValidationError):
+        parse_definition({"logic": "AND", "children": [
+            {"timeframe": "1d", "left": {"field": "close"}, "op": "in",
+             "right": {"const_list": ["a", "b"]}}]})
+
+
+def test_component_whitelist_per_function():
+    # BBANDS only accepts upper/mid/lower — "middle" is a common LLM slip.
+    with pytest.raises(ValidationError):
+        parse_definition({"logic": "AND", "children": [
+            cond(left={"fn": "BBANDS", "of": "close", "period": 20, "component": "middle"})]})
+    # MACD "signal" is still valid.
+    g = parse_definition({"logic": "AND", "children": [
+        cond(left={"fn": "MACD", "component": "signal"})]})
+    assert isinstance(g, Group)
+
+
 def test_count_timeframe_mismatch_rejected():
     inner = {"timeframe": "15m", "left": {"field": "close"}, "op": ">", "right": {"field": "open"}}
     with pytest.raises(ValidationError):

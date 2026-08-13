@@ -80,8 +80,13 @@ class ScanEngine:
         timeframes = _collect_timeframes(definition)
         panels = self._resolve_panels(timeframes)
 
-        mask, values = self._group(definition, panels)
         d1 = panels["1d"]
+        if d1.close.shape[0] == 0 or d1.close.shape[1] == 0:
+            # No bars (fresh deploy / empty universe) — short-circuit before
+            # mask evaluation, which is not safe to run over empty frames.
+            return {"data_as_of": "", "universe": 0, "matches": []}
+
+        mask, values = self._group(definition, panels)
         symbols = [s for s in mask.index[mask] if s in d1.close.columns]
 
         close = d1.close.iloc[-1]
@@ -155,7 +160,11 @@ class ScanEngine:
         right = eval_operand(c.right, panel)
         if c.left.meta == "index":
             vals = right if isinstance(right, list) else [right]
-            mask = left.map(lambda mem: any(v in (mem or []) for v in vals))
+            # `mem` may be NaN/None for instruments with no membership data
+            # (missing enrichment, or a genuinely empty list) — treat both
+            # as "member of nothing" rather than crashing on `in NaN`.
+            mask = left.map(lambda mem: any(v in mem for v in vals)
+                            if isinstance(mem, list) else False)
         elif c.op == "in":
             mask = left.isin(right if isinstance(right, list) else [right])
         elif c.op == "!=":
