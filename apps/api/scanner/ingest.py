@@ -43,13 +43,13 @@ def refresh_timeframe(store: ScannerStore, timeframe: str) -> int:
             data = yf.download(tickers=" ".join(chunk), period=period,
                                interval=interval, group_by="ticker",
                                auto_adjust=False, threads=True, progress=False)
+            long = _to_long(data, chunk, yf_to_ours)
+            if not long.empty:
+                store.upsert_bars(timeframe, long)
+                written += len(long)
         except Exception as exc:  # noqa: BLE001 — partial universe beats no universe
             logger.warning("yf.download %s chunk %d failed: %s", timeframe, i, exc)
             continue
-        long = _to_long(data, chunk, yf_to_ours)
-        if not long.empty:
-            store.upsert_bars(timeframe, long)
-            written += len(long)
     store.prune_bars(timeframe, keep=RETENTION)
     return written
 

@@ -53,3 +53,33 @@ def test_refresh_prunes_to_retention(tmp_path):
     with patch("apps.api.scanner.ingest.yf.download", return_value=data):
         refresh_timeframe(store, "1d")
     assert len(store.load_bars("1d", limit=1000)) == 320
+
+
+def test_refresh_handles_flat_single_ticker_frame(tmp_path):
+    # yfinance returns a plain (non-MultiIndex) frame when the universe has
+    # exactly one ticker — pd.concat({...}, axis=1) in yf_frame() above always
+    # produces a MultiIndex, so that helper can't exercise this branch.
+    store = make_store(tmp_path, {"TCS": [1.0]})
+    idx = pd.date_range("2026-08-03", periods=3, freq="D")
+    closes = [100.0, 101.0, 102.0]
+    data = pd.DataFrame({"Open": closes, "High": [c * 1.01 for c in closes],
+                         "Low": [c * 0.99 for c in closes], "Close": closes,
+                         "Volume": [1000] * 3}, index=idx)
+    with patch("apps.api.scanner.ingest.yf.download", return_value=data):
+        n = refresh_timeframe(store, "1d")
+    assert n == 3
+    assert set(store.load_bars("1d")["symbol"]) == {"TCS"}
+
+
+def test_malformed_chunk_does_not_kill_refresh(tmp_path):
+    store = make_store(tmp_path, {"TCS": [1.0]})
+    idx = pd.date_range("2026-08-03", periods=3, freq="D")
+    # Missing "Close" entirely — _to_long's dropna(subset=["Close"]) raises
+    # KeyError; refresh_timeframe must catch it per-chunk and keep going
+    # rather than propagating out and killing remaining chunks.
+    data = pd.DataFrame({"Open": [100.0, 101.0, 102.0], "High": [101.0, 102.0, 103.0],
+                         "Low": [99.0, 100.0, 101.0], "Volume": [1000, 1000, 1000]},
+                        index=idx)
+    with patch("apps.api.scanner.ingest.yf.download", return_value=data):
+        n = refresh_timeframe(store, "1d")
+    assert n == 0
