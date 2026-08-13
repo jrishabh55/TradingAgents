@@ -95,3 +95,80 @@ def test_result_shape(tmp_path):
     assert m["change_pct"] == 10.0
     assert m["rvol"] == 1.0
     assert res["data_as_of"]
+
+
+def _seed_instruments(store, symbols):
+    store.upsert_instruments([
+        {"symbol": s, "yf_symbol": f"{s}.NS", "name": s, "sector": "Test",
+         "industry": "Test", "market_cap": 5000.0, "index_memberships": ["NIFTY500"],
+         "fno": False, "fundamentals": {"pe": 20.0}}
+        for s in symbols
+    ])
+
+
+def test_count_streak(tmp_path):
+    store = make_store(tmp_path)
+    _seed_instruments(store, ["S", "N"])
+    # S: 4 green bars out of last 5 (bar2 is red).
+    store.upsert_bars("1d", bars_long("S", [105, 103, 108, 112, 115],
+                                      opens=[100, 105, 103, 108, 112]))
+    # N: 2 green bars out of last 5.
+    store.upsert_bars("1d", bars_long("N", [105, 100, 95, 100, 90],
+                                      opens=[100, 105, 100, 95, 100]))
+    inner = {"timeframe": "1d", "left": {"field": "close"}, "op": ">", "right": {"field": "open"}}
+    d = AND({"timeframe": "1d",
+             "left": {"fn": "COUNT", "cond": inner, "period": 5},
+             "op": ">=", "right": {"const": 4}})
+    res = run(store, d)
+    assert [m["symbol"] for m in res["matches"]] == ["S"]
+
+
+def test_group_in_group(tmp_path):
+    store = make_store(tmp_path, {"A": [101.0] * 30, "B": [50.0] * 30, "C": [99.0] * 30})
+    inner_or = {"logic": "OR", "children": [C(), C(op="<", right={"const": 60})]}
+    always_true = C(left={"field": "volume"}, op=">", right={"const": 0})
+    d = AND(inner_or, always_true)
+    res = run(store, d)
+    assert {m["symbol"] for m in res["matches"]} == {"A", "B"}
+
+
+def test_panel_cache_invalidation(tmp_path):
+    store = make_store(tmp_path, {"A": [101.0] * 30})
+    engine = ScanEngine(store)
+    definition = parse_definition(AND(C()))
+
+    res1 = engine.run(definition)
+    assert [m["symbol"] for m in res1["matches"]] == ["A"]
+
+    store.upsert_bars("1d", bars_long("A", [50.0] * 30))
+
+    res2 = engine.run(definition)
+    assert res2["matches"] == []
+
+
+def test_get_engine_rebinds(tmp_path):
+    from apps.api.scanner.engine import get_engine
+    from apps.api.scanner.store import reset_scanner_store_for_tests
+
+    store1 = reset_scanner_store_for_tests(tmp_path / "a.sqlite")
+    engine1 = get_engine()
+    assert engine1._store is store1
+
+    store2 = reset_scanner_store_for_tests(tmp_path / "b.sqlite")
+    engine2 = get_engine()
+    assert engine2._store is store2
+    assert engine2._store is not store1
+
+
+def test_multi_timeframe_asymmetric_symbols(tmp_path):
+    store = make_store(tmp_path, {"A": [101.0] * 30, "B": [101.0] * 30})
+    store.upsert_bars("15m", bars_long("A", [201.0] * 30, freq_minutes=15))
+    # B has no 15m bars at all.
+
+    d_and = AND(C(), C(timeframe="15m", right={"const": 200}))
+    res_and = run(store, d_and)
+    assert [m["symbol"] for m in res_and["matches"]] == ["A"]
+
+    d_or = {"logic": "OR", "children": [C(), C(timeframe="15m", right={"const": 200})]}
+    res_or = run(store, d_or)
+    assert {m["symbol"] for m in res_or["matches"]} == {"A", "B"}

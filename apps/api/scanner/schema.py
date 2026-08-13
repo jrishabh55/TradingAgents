@@ -92,6 +92,24 @@ class Operand(BaseModel):
 Op = Literal[">", "<", ">=", "<=", "==", "!=", "in", "crosses_above", "crosses_below"]
 
 
+def _find_counts(op: Optional[Operand]) -> List[Operand]:
+    """All COUNT operands reachable from `op`, recursing through expr args,
+    `of`-operands, and nested COUNT conditions."""
+    if op is None:
+        return []
+    found: List[Operand] = []
+    if op.fn == "COUNT" and op.cond is not None:
+        found.append(op)
+        found += _find_counts(op.cond.left)
+        found += _find_counts(op.cond.right)
+    if isinstance(op.of, Operand):
+        found += _find_counts(op.of)
+    if op.args:
+        for a in op.args:
+            found += _find_counts(a)
+    return found
+
+
 class Condition(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -125,6 +143,10 @@ class Condition(BaseModel):
             if self.left.meta is not None:
                 if self.op not in ("==", "!=", "in"):
                     raise ValueError("meta conditions only support ==, !=, in")
+        for count_op in _find_counts(self.left) + _find_counts(self.right):
+            if count_op.cond.timeframe != self.timeframe:
+                raise ValueError(
+                    "COUNT's inner condition must use the same timeframe as its outer condition")
         return self
 
 

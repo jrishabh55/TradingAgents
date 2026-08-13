@@ -3,11 +3,16 @@
 Panels load per timeframe (last ~320 bars x all symbols); every operand
 computes once as a wide frame; the boolean tree reduces per-symbol at the
 latest bar. Missing data never matches.
+
+Each `run()` resolves a local snapshot of every panel it needs up front (see
+`_resolve_panels`), so a bar-version bump that lands mid-run can never make
+two calls within the same run() see different data — the instance-level
+cache is only consulted/refreshed once, before evaluation starts.
 """
 from __future__ import annotations
 
 import threading
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, Optional, Set, Tuple
 
 import numpy as np
 import pandas as pd
@@ -19,6 +24,8 @@ from apps.api.scanner.store import ScannerStore, get_scanner_store
 _RESAMPLE = {"1w": "W", "1mo": "ME"}
 _AGG = {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
 
+PanelMap = Dict[str, Panel]
+
 
 class ScanEngine:
     def __init__(self, store: ScannerStore) -> None:
@@ -28,41 +35,53 @@ class ScanEngine:
         self._lock = threading.Lock()
 
     # -- panels -----------------------------------------------------------
-    def _panel(self, timeframe: str) -> Panel:
+    def _build_panel(self, timeframe: str) -> Panel:
+        """Construct a fresh Panel for `timeframe` from the store. No caching,
+        no locking, no version check — callers own that (see _resolve_panels)."""
+        base_tf = "1d" if timeframe in _RESAMPLE else timeframe
+        long = self._store.load_bars(base_tf)
+        inst = self._store.instruments_df()
+        frames = {}
+        for fld in ("open", "high", "low", "close", "volume"):
+            wide = long.pivot(index="ts", columns="symbol", values=fld)
+            wide.index = pd.to_datetime(wide.index)
+            frames[fld] = wide.sort_index()
+        if timeframe in _RESAMPLE:
+            frames = {f: frames[f].resample(_RESAMPLE[timeframe]).agg(_AGG[f])
+                      for f in frames}
+        fund = pd.DataFrame(list(inst["fundamentals"]), index=inst.index) \
+            if len(inst) else pd.DataFrame()
+        if len(inst) and "market_cap" not in fund:
+            fund["market_cap"] = inst["market_cap"]
+        elif len(inst):
+            fund["market_cap"] = fund["market_cap"].fillna(inst["market_cap"])
+        meta = inst[["sector", "industry", "index_memberships", "fno"]] \
+            if len(inst) else pd.DataFrame()
+        return Panel(fundamentals=fund, meta=meta, **frames)
+
+    def _resolve_panels(self, timeframes: Set[str]) -> PanelMap:
+        """Per-run snapshot: check the store version exactly once, refresh the
+        instance cache if stale, then return a local dict covering exactly the
+        timeframes this run needs. No version re-check happens after this."""
         with self._lock:
             v = self._store.version()
             if v != self._version:
                 self._panels.clear()
                 self._version = v
-            if timeframe in self._panels:
-                return self._panels[timeframe]
-            base_tf = "1d" if timeframe in _RESAMPLE else timeframe
-            long = self._store.load_bars(base_tf)
-            inst = self._store.instruments_df()
-            frames = {}
-            for fld in ("open", "high", "low", "close", "volume"):
-                wide = long.pivot(index="ts", columns="symbol", values=fld)
-                wide.index = pd.to_datetime(wide.index)
-                frames[fld] = wide.sort_index()
-            if timeframe in _RESAMPLE:
-                frames = {f: frames[f].resample(_RESAMPLE[timeframe]).agg(_AGG[f])
-                          for f in frames}
-            fund = pd.DataFrame(list(inst["fundamentals"]), index=inst.index) \
-                if len(inst) else pd.DataFrame()
-            if len(inst) and "market_cap" not in fund:
-                fund["market_cap"] = inst["market_cap"]
-            elif len(inst):
-                fund["market_cap"] = fund["market_cap"].fillna(inst["market_cap"])
-            meta = inst[["sector", "industry", "index_memberships", "fno"]] \
-                if len(inst) else pd.DataFrame()
-            panel = Panel(fundamentals=fund, meta=meta, **frames)
-            self._panels[timeframe] = panel
-            return panel
+            panels: PanelMap = {}
+            for tf in timeframes:
+                if tf not in self._panels:
+                    self._panels[tf] = self._build_panel(tf)
+                panels[tf] = self._panels[tf]
+            return panels
 
     # -- evaluation ---------------------------------------------------------
     def run(self, definition: Group) -> dict:
-        mask, values = self._group(definition)
-        d1 = self._panel("1d")
+        timeframes = _collect_timeframes(definition)
+        panels = self._resolve_panels(timeframes)
+
+        mask, values = self._group(definition, panels)
+        d1 = panels["1d"]
         symbols = [s for s in mask.index[mask] if s in d1.close.columns]
 
         close = d1.close.iloc[-1]
@@ -93,11 +112,11 @@ class ScanEngine:
         return {"data_as_of": data_as_of, "universe": int(d1.close.shape[1]),
                 "matches": matches}
 
-    def _group(self, g: Group) -> Tuple[pd.Series, Dict[str, pd.Series]]:
+    def _group(self, g: Group, panels: PanelMap) -> Tuple[pd.Series, Dict[str, pd.Series]]:
         masks, values = [], {}
         for child in g.children:
-            m, v = (self._group(child) if isinstance(child, Group)
-                    else self._condition(child))
+            m, v = (self._group(child, panels) if isinstance(child, Group)
+                    else self._condition(child, panels))
             masks.append(m)
             values.update(v)
         idx = masks[0].index
@@ -109,8 +128,8 @@ class ScanEngine:
             out = (out & m) if g.logic == "AND" else (out | m)
         return out, values
 
-    def _condition(self, c: Condition) -> Tuple[pd.Series, Dict[str, pd.Series]]:
-        panel = self._panel(c.timeframe)
+    def _condition(self, c: Condition, panels: PanelMap) -> Tuple[pd.Series, Dict[str, pd.Series]]:
+        panel = panels[c.timeframe]
 
         # Meta conditions are time-invariant string comparisons.
         if c.left.meta is not None:
@@ -151,7 +170,14 @@ class ScanEngine:
         return _eval
 
     def _cond_frame(self, c: Condition, panel: Panel) -> pd.DataFrame:
-        """Raw per-bar boolean frame for a condition (validity included)."""
+        """Raw per-bar boolean frame for a condition (validity included).
+
+        `panel` is the panel for c.timeframe. A COUNT operand's inner
+        condition is validated (schema.Condition._shape) to share its outer
+        condition's timeframe, so reusing the same `panel` here for that
+        nested evaluation is always correct — never a different timeframe's
+        data leaking in.
+        """
         cond_eval = self._cond_frame_for(panel)
         if c.left.pattern is not None:
             return eval_operand(c.left, panel, cond_eval)
@@ -187,6 +213,45 @@ def _r(v) -> Optional[float]:
     if v is None or (isinstance(v, float) and not np.isfinite(v)) or pd.isna(v):
         return None
     return round(float(v), 4)
+
+
+# -- timeframe collection (per-run snapshot planning) ------------------------
+
+def _operand_timeframes(op: Optional[Operand]) -> Set[str]:
+    """Timeframes referenced transitively by an operand: only COUNT operands
+    (via their nested condition) actually carry a timeframe; walk into
+    `of`-operands and expr `args` to find any COUNT operands nested there."""
+    if op is None:
+        return set()
+    tfs: Set[str] = set()
+    if op.fn == "COUNT" and op.cond is not None:
+        tfs |= _condition_timeframes(op.cond)
+    if isinstance(op.of, Operand):
+        tfs |= _operand_timeframes(op.of)
+    if op.args:
+        for a in op.args:
+            tfs |= _operand_timeframes(a)
+    return tfs
+
+
+def _condition_timeframes(c: Condition) -> Set[str]:
+    tfs = {c.timeframe}
+    tfs |= _operand_timeframes(c.left)
+    tfs |= _operand_timeframes(c.right)
+    return tfs
+
+
+def _group_timeframes(g: Group) -> Set[str]:
+    tfs: Set[str] = set()
+    for child in g.children:
+        tfs |= _group_timeframes(child) if isinstance(child, Group) else _condition_timeframes(child)
+    return tfs
+
+
+def _collect_timeframes(g: Group) -> Set[str]:
+    """Every timeframe this definition needs a panel for, always including
+    "1d" (run() reports change/volume/rvol/universe off the 1d panel)."""
+    return _group_timeframes(g) | {"1d"}
 
 
 _engine: Optional[ScanEngine] = None

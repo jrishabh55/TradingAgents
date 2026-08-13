@@ -126,3 +126,12 @@ def test_op_operand_cross_validation():
     assert g.children[0].left.meta == "sector"
     assert g.children[0].op == "in"
     assert g.children[0].right.const_list == ["IT", "Banking"]
+
+
+def test_count_timeframe_mismatch_rejected():
+    inner = {"timeframe": "15m", "left": {"field": "close"}, "op": ">", "right": {"field": "open"}}
+    with pytest.raises(ValidationError):
+        parse_definition({"logic": "AND", "children": [
+            {"timeframe": "1d",
+             "left": {"fn": "COUNT", "cond": inner, "period": 5},
+             "op": ">=", "right": {"const": 4}}]})
