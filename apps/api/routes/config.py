@@ -146,6 +146,39 @@ def get_config() -> ConfigResponse:
     )
 
 
+@router.get("/search/tickers")
+def search_tickers(q: str) -> dict:
+    """Ticker typeahead backed by Yahoo Finance's search endpoint.
+
+    Proxied server-side because Yahoo blocks browser CORS; yfinance (already a
+    core dep) handles the cookie/crumb handshake. Sync def on purpose: FastAPI
+    runs it in the threadpool, so the blocking HTTP call never stalls the loop.
+    """
+    q = q.strip()
+    if len(q) < 2:
+        return {"results": []}
+    import yfinance as yf
+
+    try:
+        quotes = yf.Search(q[:80], max_results=8, news_count=0).quotes
+    except Exception:  # noqa: BLE001 — typeahead must degrade, never 500
+        quotes = []
+    return {
+        "results": [
+            {
+                "symbol": item["symbol"],
+                "name": item.get("shortname") or item.get("longname") or "",
+                "exchange": item.get("exchDisp") or "",
+                "type": item.get("quoteType") or "",
+            }
+            for item in quotes
+            # Yahoo pads sparse results with option contracts
+            # (MMYT260918C00060000) — noise in a ticker picker.
+            if item.get("symbol") and item.get("quoteType") != "OPTION"
+        ]
+    }
+
+
 def _helper_dist_file(user_agent: str = "") -> "Path":
     """The packaged helper artifact this API can serve itself — best match
     for the requesting OS when several builds sit in ``dist/``.
