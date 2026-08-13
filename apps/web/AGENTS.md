@@ -188,6 +188,17 @@ Never run `vite dev` in production: every open tab holds a live HMR
 websocket, and a redeploy hot-patches running pages into a corrupted module
 graph (this happened; see git history for 2026-08-13).
 
+### Class naming: never anything an adblocker can read as an ad
+
+EasyList ships generic cosmetic filters like `##.adv-label` that hide
+matching elements on EVERY site. Our "advanced settings" classes were named
+`adv-*`; users with uBlock/AdBlock/AdGuard had the label column
+`display:none`d and the whole panel collapsed (localhost is typically
+exempt, so dev looked fine). Renamed to `cfg-*` on 2026-08-13. Before
+introducing a new class, avoid ad-ish tokens (`ad`, `adv`, `banner`,
+`sponsor`, `promo`, `popup`) — or check:
+`curl -s https://easylist.to/easylist/easylist.txt | grep '##.your-class'`.
+
 ### Production Cloudflare deploy
 
 For prod on Cloudflare Workers, run the FastAPI backend somewhere

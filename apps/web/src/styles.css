@@ -645,16 +645,16 @@ body {
 .chip.ghost:hover { background: var(--bg-2); color: var(--text-1); }
 
 /* ---------- Advanced disclosure ---------- */
-.adv-row {
+.cfg-row {
   display: grid;
   grid-template-columns: 220px 1fr;
   gap: 22px;
   padding: 22px 24px;
   border-bottom: 1px solid var(--line-1);
 }
-.adv-label { padding-top: 2px; }
-.adv-title { font-size: 13px; font-weight: 600; margin-bottom: 4px; color: var(--text-1); }
-.adv-sub { font-size: 11.5px; color: var(--text-3); line-height: 1.5; }
+.cfg-label { padding-top: 2px; }
+.cfg-title { font-size: 13px; font-weight: 600; margin-bottom: 4px; color: var(--text-1); }
+.cfg-sub { font-size: 11.5px; color: var(--text-3); line-height: 1.5; }
 
 .depth-grid {
   display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;

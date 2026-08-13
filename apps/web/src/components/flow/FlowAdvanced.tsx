@@ -202,14 +202,14 @@ export function FlowAdvanced({
         {/* advanced panel */}
         <div className="es-card">
           {/* Depth */}
-          <div className="adv-row">
-            <div className="adv-label">
-              <div className="adv-title">Depth</div>
-              <div className="adv-sub">
+          <div className="cfg-row">
+            <div className="cfg-label">
+              <div className="cfg-title">Depth</div>
+              <div className="cfg-sub">
                 How many debate rounds between bull/bear researchers.
               </div>
             </div>
-            <div className="adv-control">
+            <div className="cfg-control">
               <div className="depth-grid">
                 {DEPTHS.map((d) => (
                   <label
@@ -236,14 +236,14 @@ export function FlowAdvanced({
           </div>
 
           {/* Analysts */}
-          <div className="adv-row">
-            <div className="adv-label">
-              <div className="adv-title">Analyst team</div>
-              <div className="adv-sub">
+          <div className="cfg-row">
+            <div className="cfg-label">
+              <div className="cfg-title">Analyst team</div>
+              <div className="cfg-sub">
                 Stage 1 of 5. Each analyst contributes a perspective to the debate.
               </div>
             </div>
-            <div className="adv-control">
+            <div className="cfg-control">
               <div
                 style={{
                   display: 'grid',
@@ -285,15 +285,15 @@ export function FlowAdvanced({
           </div>
 
           {/* Model stack */}
-          <div className="adv-row">
-            <div className="adv-label">
-              <div className="adv-title">Model stack</div>
-              <div className="adv-sub">
+          <div className="cfg-row">
+            <div className="cfg-label">
+              <div className="cfg-title">Model stack</div>
+              <div className="cfg-sub">
                 Provider + the two thinker models. Effort knobs appear per
                 provider.
               </div>
             </div>
-            <div className="adv-control" style={{ display: 'grid', gap: 12 }}>
+            <div className="cfg-control" style={{ display: 'grid', gap: 12 }}>
               <div className="seg" style={{ width: '100%' }}>
                 {(config?.providers ?? []).map((p) => (
                   <button
@@ -373,12 +373,12 @@ export function FlowAdvanced({
           </div>
 
           {/* Output */}
-          <div className="adv-row" style={{ borderBottom: 'none' }}>
-            <div className="adv-label">
-              <div className="adv-title">Output</div>
-              <div className="adv-sub">Final report language and crash-safety.</div>
+          <div className="cfg-row" style={{ borderBottom: 'none' }}>
+            <div className="cfg-label">
+              <div className="cfg-title">Output</div>
+              <div className="cfg-sub">Final report language and crash-safety.</div>
             </div>
-            <div className="adv-control" style={{ display: 'grid', gap: 12 }}>
+            <div className="cfg-control" style={{ display: 'grid', gap: 12 }}>
               <Field label="Language">
                 <select
                   className="fld-input"
