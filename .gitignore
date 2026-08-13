@@ -240,3 +240,7 @@ reports/
 
 # Dokploy API credentials for deploy/dokploy.sh — never commit
 /deploy/dokploy.env
+
+# Node deps must never appear at repo root (a stray pnpm add here once
+# committed 220k files) — apps manage their own under apps/*/
+node_modules/

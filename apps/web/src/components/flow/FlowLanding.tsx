@@ -441,12 +441,12 @@ export function FlowLanding() {
                 </div>
                 <CommandPrimitive.Input
                   value={form.ticker}
-                  onValueChange={(v) => {
+                  onValueChange={(v: string) => {
                     patch({ ticker: v })
                     setSearchOpen(true)
                     setNoResults(false)
                   }}
-                  onKeyDown={(e) => {
+                  onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
                     if (e.key === 'Escape') setSearchOpen(false)
                   }}
                   onBlur={() => setSearchOpen(false)}
@@ -527,7 +527,7 @@ export function FlowLanding() {
                         onSelect={() => pickHit(h)}
                         /* Keep focus in the input: without this, blur closes
                            the list before the click lands. */
-                        onMouseDown={(e) => e.preventDefault()}
+                        onMouseDown={(e: React.MouseEvent) => e.preventDefault()}
                         className="cursor-pointer gap-2.5 px-4 py-2.5"
                       >
                         <span
