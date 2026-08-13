@@ -159,7 +159,8 @@ def _rsi(x: pd.DataFrame, n: int) -> pd.DataFrame:
 def _stoch_k(p: Panel, n: int) -> pd.DataFrame:
     ll = p.low.rolling(n).min()
     hh = p.high.rolling(n).max()
-    return 100 * (p.close - ll) / (hh - ll)
+    rng = (hh - ll).replace(0, np.nan)
+    return 100 * (p.close - ll) / rng
 
 
 def _bbands(x: pd.DataFrame, n: int, k: float):
@@ -176,7 +177,8 @@ def _adx(p: Panel, n: int):
     atr = _atr(p, n)
     pdi = 100 * _wilder(plus, n) / atr
     mdi = 100 * _wilder(minus, n) / atr
-    dx = 100 * (pdi - mdi).abs() / (pdi + mdi)
+    denom = (pdi + mdi).replace(0, np.nan)
+    dx = 100 * (pdi - mdi).abs() / denom
     return _wilder(dx, n), pdi, mdi
 
 
@@ -247,7 +249,8 @@ def _fn(op: Operand, p: Panel, cond_eval) -> pd.DataFrame:
     if name == "HMA":
         return _wma(2 * _wma(x, max(n // 2, 1)) - _wma(x, n), max(int(np.sqrt(n)), 1))
     if name == "VWMA":
-        return (x * p.volume).rolling(n).sum() / p.volume.rolling(n).sum()
+        vsum = p.volume.rolling(n).sum().replace(0, np.nan)
+        return (x * p.volume).rolling(n).sum() / vsum
     if name == "RSI":
         return _rsi(x, n)
     if name == "STOCHRSI":
@@ -260,10 +263,12 @@ def _fn(op: Operand, p: Panel, cond_eval) -> pd.DataFrame:
     if name == "CCI":
         tp = (p.high + p.low + p.close) / 3
         mad = tp.rolling(n).apply(lambda a: np.abs(a - a.mean()).mean(), raw=True)
-        return (tp - _sma(tp, n)) / (0.015 * mad)
+        denom = (0.015 * mad).replace(0, np.nan)
+        return (tp - _sma(tp, n)) / denom
     if name == "WILLR":
         hh, ll = p.high.rolling(n).max(), p.low.rolling(n).min()
-        return -100 * (hh - p.close) / (hh - ll)
+        rng = (hh - ll).replace(0, np.nan)
+        return -100 * (hh - p.close) / rng
     if name == "ROC":
         return x.pct_change(n) * 100
     if name == "MOM":
@@ -292,7 +297,8 @@ def _fn(op: Operand, p: Panel, cond_eval) -> pd.DataFrame:
         return {"upper": u, "mid": m, "lower": l}[op.component or "upper"]
     if name == "BBWIDTH":
         u, m, l = _bbands(x, n, op.params.get("std", 2.0))
-        return (u - l) / m * 100
+        denom = m.replace(0, np.nan)
+        return (u - l) / denom * 100
     if name == "STDDEV":
         return x.rolling(n).std()
     if name == "OBV":
@@ -346,6 +352,9 @@ def describe(op: Operand) -> str:
         of = "" if op.of is None or op.of == "close" else \
             (op.of if isinstance(op.of, str) else describe(op.of)) + ","
         parts = f"{of}{op.period}" if op.period else of.rstrip(",")
+        if op.params:
+            params_str = ",".join(f"{k}={op.params[k]:g}" for k in sorted(op.params))
+            parts = f"{parts},{params_str}" if parts else params_str
         comp = f".{op.component}" if op.component else ""
         base = f"{op.fn}({parts}){comp}"
     if op.bars_ago:

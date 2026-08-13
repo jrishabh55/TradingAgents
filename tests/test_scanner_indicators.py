@@ -78,3 +78,24 @@ def test_describe():
     assert describe(Operand(fn="EMA", of="close", period=20)) == "EMA(20)"
     assert describe(Operand(expr="*", args=[Operand(const=2),
                     Operand(fn="SMA", of="volume", period=20)])) == "2*SMA(volume,20)"
+
+
+def test_describe_includes_params():
+    no_params = describe(Operand(fn="SUPERTREND", period=10))
+    with_params = describe(Operand(fn="SUPERTREND", period=10, params={"mult": 2.5}))
+    assert with_params != no_params
+    assert "mult=2.5" in with_params
+
+
+def test_stoch_willr_flat_range_returns_nan():
+    idx = pd.date_range("2026-01-05", periods=20, freq="D")
+    flat = pd.DataFrame({"A": [100.0] * 20}, index=idx)
+    p = Panel(open=flat, high=flat, low=flat, close=flat, volume=flat * 0 + 1000,
+              fundamentals=pd.DataFrame({"market_cap": {"A": 5000.0}}),
+              meta=pd.DataFrame({"sector": {"A": "IT"}}))
+    stoch = eval_operand(Operand(fn="STOCH", period=14), p)
+    willr = eval_operand(Operand(fn="WILLR", period=14), p)
+    assert pd.isna(stoch["A"].iloc[-1])
+    assert not np.isinf(stoch["A"].iloc[-1])
+    assert pd.isna(willr["A"].iloc[-1])
+    assert not np.isinf(willr["A"].iloc[-1])
