@@ -33,6 +33,10 @@ def test_instruments_roundtrip(tmp_path):
     assert inst.loc["TCS", "yf_symbol"] == "TCS.NS"
     assert inst.loc["TCS", "index_memberships"] == ["NIFTY500"]
     assert inst.loc["TCS", "fundamentals"]["pe"] == 20.0
+    # Verify exact column set (no leakage of updated_at or fundamentals_json)
+    expected_cols = {"yf_symbol", "name", "sector", "industry", "market_cap",
+                     "index_memberships", "fno", "fundamentals"}
+    assert set(inst.columns) == expected_cols
 
 
 def test_scanner_crud_and_scoping(tmp_path):

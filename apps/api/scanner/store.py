@@ -6,6 +6,7 @@ per-call connections.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import sqlite3
@@ -64,11 +65,16 @@ class ScannerStore:
         with self._conn() as c:
             c.executescript(_SCHEMA)
 
-    def _conn(self) -> sqlite3.Connection:
+    @contextlib.contextmanager
+    def _conn(self):
         conn = sqlite3.connect(self._path)
         conn.execute("PRAGMA journal_mode=WAL")
         conn.row_factory = sqlite3.Row
-        return conn
+        try:
+            yield conn
+            conn.commit()
+        finally:
+            conn.close()
 
     # -- bars ------------------------------------------------------------
     def upsert_bars(self, timeframe: str, df: pd.DataFrame) -> None:
@@ -135,7 +141,8 @@ class ScannerStore:
 
     def instruments_df(self) -> pd.DataFrame:
         with self._conn() as c:
-            df = pd.read_sql_query("SELECT * FROM instruments", c)
+            df = pd.read_sql_query("SELECT symbol, yf_symbol, name, sector, industry, market_cap, "
+                                    "index_memberships, fno, fundamentals_json FROM instruments", c)
         if df.empty:
             return df.set_index(pd.Index([], name="symbol")) if "symbol" not in df.index.names else df
         df["index_memberships"] = df["index_memberships"].map(json.loads)
