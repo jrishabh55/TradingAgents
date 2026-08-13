@@ -55,6 +55,11 @@ services:
       FINNHUB_API_KEY: ${FINNHUB_API_KEY:-}
       ALPHA_VANTAGE_API_KEY: ${ALPHA_VANTAGE_API_KEY:-}
       FRED_API_KEY: ${FRED_API_KEY:-}
+      # Reddit app-only OAuth ("script" app at reddit.com/prefs/apps). With
+      # these set, the social analyst uses oauth.reddit.com — per-client rate
+      # limit, works from datacenter IPs where the public feed 429s.
+      REDDIT_CLIENT_ID: ${REDDIT_CLIENT_ID:-}
+      REDDIT_CLIENT_SECRET: ${REDDIT_CLIENT_SECRET:-}
 
       # State on the volume so it survives redeploys.
       WEBAPP_DB_PATH: /home/appuser/.tradingagents/webapp.sqlite

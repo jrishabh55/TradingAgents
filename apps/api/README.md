@@ -54,6 +54,7 @@ Open <http://localhost:8080>.
 | `CLERK_SECRET_KEY` | (unset) | Enables the activation + credits gate: only users with `{"activated": true}` in Clerk privateMetadata may call the API; each run costs 1 credit (seeded to 10). See `CLERK_SETUP.md`. |
 | `WEBAPP_CORS_ORIGINS` | `*` | Comma-separated CORS allowlist. |
 | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`, … | — | LLM provider credentials. Same keys the CLI uses. |
+| `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET` | (unset) | Reddit app-only OAuth (create a "script" app at reddit.com/prefs/apps). Set both → the social analyst uses `oauth.reddit.com` (per-client rate limit, works from datacenter IPs). Unset → public RSS feed, which 429s under shared-IP pressure. |
 | `TRADINGAGENTS_RESULTS_DIR`, `TRADINGAGENTS_CACHE_DIR`, `TRADINGAGENTS_MEMORY_LOG_PATH` | — | Override upstream paths (memory log, cache). |
 
 Server-side API keys come from environment. The one exception is Gemini, which is BYOC: users paste their own Gemini API key in the UI (stored Fernet-encrypted, see `WEBAPP_KEY_ENCRYPTION_SECRET`). An automatic Google-account path exists but ships disabled (`OAUTH_ENABLED` in `apps/api/user_keys.py`).

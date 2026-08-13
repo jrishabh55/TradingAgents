@@ -152,7 +152,28 @@ ship — conflicts are trivial keep-both merges.
 
 **Migration plan:** Drop our rows if upstream adds the same models.
 
-### 9. `pyproject.toml`
+### 9. `tradingagents/dataflows/reddit.py`
+
+**Change:** Added app-only OAuth support: ``_oauth_token`` (client_credentials
+against ``/api/v1/access_token``, cached with expiry + lock),
+``_fetch_subreddit_oauth`` (official ``oauth.reddit.com`` JSON search), and
+``_fetch_subreddit`` now prefers OAuth when ``REDDIT_CLIENT_ID`` /
+``REDDIT_CLIENT_SECRET`` are set, falling back to the existing RSS path on any
+failure. Module docstring updated. Purely additive — without the env vars the
+behavior is byte-identical to upstream.
+
+**Why:** The public RSS feed shares a per-IP rate limit and 429s constantly
+from datacenter deployments (the Dokploy server). OAuth gets a per-client
+limit and the richer JSON payload (scores/comments). Upstream even left a
+comment anticipating this ("Kept for the day … an OAuth token is wired in").
+
+**Conflict risk:** Medium. Upstream actively maintains this file (#862, #1024).
+The additions are separable functions, so re-applying is mechanical.
+
+**Migration plan:** Good upstream-PR candidate — it fixes their issue #862.
+Tests in ``tests/test_reddit_oauth.py``.
+
+### 10. `pyproject.toml`
 
 **Change:** Added `pythonpath = ["."]` under `[tool.pytest.ini_options]`.
 
