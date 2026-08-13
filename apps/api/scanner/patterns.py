@@ -12,7 +12,8 @@ import pandas as pd
 from apps.api.scanner.indicators import Panel
 
 
-def pattern_frame(name: str, p: Panel) -> pd.DataFrame:
+def pattern_frame(name: str, panel: Panel) -> pd.DataFrame:
+    p = panel
     o, h, l, c = p.open, p.high, p.low, p.close
     body = c - o
     ab = body.abs()
