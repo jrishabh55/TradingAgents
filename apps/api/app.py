@@ -32,10 +32,14 @@ from apps.api.routes.config import router as config_router
 from apps.api.routes.keys import router as keys_router
 from apps.api.routes.relay import router as relay_router
 from apps.api.routes.runs import router as runs_router
+from apps.api.routes.scanners import router as scanners_router
 from apps.api.routes.stream import router as stream_router
 from apps.api.jobs.bus import get_bus
 from apps.api.jobs.runner import get_runner, shutdown_runner
 from apps.api.jobs.store import get_store
+from apps.api.scanner.ingest import ingest_loop
+from apps.api.scanner.seed import seed_prebuilt
+from apps.api.scanner.store import get_scanner_store
 
 
 logger = logging.getLogger(__name__)
@@ -63,10 +67,16 @@ def create_app() -> FastAPI:
         bus = get_bus()
         bus.attach_loop(asyncio.get_running_loop())
         get_runner()
+        scanner_task = None
+        seed_prebuilt(get_scanner_store())
+        if os.environ.get("SCANNER_INGEST", "1") != "0":
+            scanner_task = asyncio.create_task(ingest_loop(), name="scanner-ingest")
         logger.info("webapp ready")
         try:
             yield
         finally:
+            if scanner_task is not None:
+                scanner_task.cancel()
             shutdown_runner()
 
     app = FastAPI(
@@ -113,6 +123,7 @@ def create_app() -> FastAPI:
     app.include_router(keys_router, prefix="/api")
     app.include_router(runs_router, prefix="/api")
     app.include_router(stream_router, prefix="/api")
+    app.include_router(scanners_router, prefix="/api")
     # No prefix: these two routes deliberately live on different roots. The
     # websocket is public under /api/relay/ws, while the shim sits on /internal
     # so the frontend's /api/* catch-all proxy does not expose it.
