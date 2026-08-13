@@ -82,7 +82,23 @@ class RelayClient:
         from apps.helper.version import __version__
 
         headers = {"Authorization": f"Bearer {self._auth}"}
-        async with websockets.connect(self.url, additional_headers=headers) as ws:
+        # The packaged app's Python has no OS trust store, so ssl's default
+        # context fails every wss:// handshake with CERTIFICATE_VERIFY_FAILED.
+        # certifi ships a CA bundle that PyInstaller collects into the app;
+        # source runs use it too — one code path, same behaviour.
+        ssl_ctx = None
+        if self.url.startswith("wss://"):
+            import ssl
+
+            try:
+                import certifi
+
+                ssl_ctx = ssl.create_default_context(cafile=certifi.where())
+            except ImportError:  # no certifi: fall back to system defaults
+                ssl_ctx = ssl.create_default_context()
+        async with websockets.connect(
+            self.url, additional_headers=headers, ssl=ssl_ctx
+        ) as ws:
             await ws.send(json.dumps({
                 "type": "hello",
                 "providers": self._registry.names(),
@@ -113,6 +129,12 @@ class RelayClient:
                         if task is not None:
                             task.cancel()
                     elif kind == "error":
+                        # A rejection is a clean close, not an exception — set
+                        # last_error here or the UI shows an eternal
+                        # "Reconnecting…" with no reason attached.
+                        self.last_error = (
+                            f"portal rejected the connection: {message.get('error')}"
+                        )
                         logger.error("relay rejected the connection: %s", message.get("error"))
                         return
             finally:

@@ -13,3 +13,6 @@ websockets>=14
 # Native window for `app` mode (wraps the OS webview — WKWebView/WebView2).
 # Optional at runtime: if missing, `app` falls back to opening a browser tab.
 pywebview>=5
+# CA bundle for wss:// — the packaged app's Python has no OS trust store, so
+# without this every TLS relay handshake fails CERTIFICATE_VERIFY_FAILED.
+certifi>=2024.7
