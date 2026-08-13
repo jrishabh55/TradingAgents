@@ -87,9 +87,18 @@ export function ScannerBuilder({ initial }: { initial: ScannerSummary | null }) 
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
+  // Invariant: each tab's source of truth is synced on tab exit (see the
+  // Tabs onValueChange below) — builder edits are flushed into `json` when
+  // leaving the builder tab, and json edits are parsed into `state` when
+  // leaving the json tab. So whichever tab is active here already holds the
+  // current definition; there's no cross-tab staleness to reconcile.
   function currentDefinition(): ScanGroup {
     if (tab === 'builder' && state) return rowsToAst(state)
-    return JSON.parse(json) as ScanGroup
+    try {
+      return JSON.parse(json) as ScanGroup
+    } catch {
+      throw new Error('Invalid JSON in the editor — fix it before running')
+    }
   }
 
   function setDefinition(def: ScanGroup) {
@@ -100,7 +109,7 @@ export function ScannerBuilder({ initial }: { initial: ScannerSummary | null }) 
   }
 
   async function generate() {
-    setNlBusy(true); setError(null)
+    setNlBusy(true); setError(null); setExplanation(null)
     try {
       const { definition, explanation } = await api.nlScanner(nlPrompt)
       setDefinition(definition)
@@ -175,6 +184,9 @@ export function ScannerBuilder({ initial }: { initial: ScannerSummary | null }) 
             setError('Invalid JSON — fix it before switching to the builder tab.')
             return
           }
+        }
+        if (next === 'json' && tab === 'builder' && state) {
+          setJson(JSON.stringify(rowsToAst(state), null, 2))
         }
         setTab(next)
       }}>
