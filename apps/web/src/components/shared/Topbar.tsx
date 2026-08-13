@@ -34,6 +34,42 @@ function CreditsPill() {
   )
 }
 
+/** "Get the helper app" link — the download otherwise only surfaces inside
+ *  the ChatGPT-subscription provider's setup card, which you'd never see
+ *  without selecting that provider first. Hidden when the user's helper is
+ *  already connected (nothing to download) or no build is hosted. */
+function HelperDownloadLink() {
+  const [url, setUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    let stale = false
+    api
+      .getHelperStatus()
+      .then((s) => {
+        if (!stale && !s.connected && s.download_url) setUrl(s.download_url)
+      })
+      .catch(() => {
+        /* backend down or unauthenticated — no link either way */
+      })
+    return () => {
+      stale = true
+    }
+  }, [])
+
+  if (!url) return null
+  return (
+    <a
+      className="es-btn ghost sm no-underline"
+      href={url}
+      target="_blank"
+      rel="noreferrer"
+      title="Run analyses on your ChatGPT subscription via the local helper app"
+    >
+      Get the helper app ↗
+    </a>
+  )
+}
+
 export interface TopbarProps {
   ticker?: string
   date?: string
@@ -111,6 +147,7 @@ export function Topbar({
           Export
         </button>
       )}
+      <HelperDownloadLink />
       <Link to="/" className="es-btn primary sm no-underline">
         New analysis
       </Link>

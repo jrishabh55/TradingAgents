@@ -137,7 +137,22 @@ passthrough whitelist dropped it. The object is injected per run by
 **Migration plan:** Keep, or send upstream — forwarding `credentials` is generally
 useful.
 
-### 8. `pyproject.toml`
+### 8. `tradingagents/llm_clients/model_catalog.py`
+
+**Change:** Added the GPT-5.6 family to `MODEL_OPTIONS["openai"]` — `gpt-5.6-luna`
+and `gpt-5.6-terra` in `quick`, `gpt-5.6-sol` and `gpt-5.6-terra` in `deep`
+(verified against the live `/v1/models` endpoint, 2026-08-13). Existing entries
+kept, labels of superseded models adjusted ("Latest" → "Previous").
+
+**Why:** The webapp's model dropdowns read this catalog; users asked for the
+current OpenAI generation.
+
+**Conflict risk:** Medium-low. Upstream updates this same table when new models
+ship — conflicts are trivial keep-both merges.
+
+**Migration plan:** Drop our rows if upstream adds the same models.
+
+### 9. `pyproject.toml`
 
 **Change:** Added `pythonpath = ["."]` under `[tool.pytest.ini_options]`.
 
