@@ -103,6 +103,12 @@ export interface HelperStatus {
   connected: boolean
   /* Where to fetch the helper package; '' when not configured. */
   download_url: string
+  /* Version the connected helper reported; null/absent when disconnected or
+     the build predates version reporting. */
+  helper_version?: string | null
+  /* True when the connected helper is older than the portal's tree (or too
+     old to report a version) — drives the Topbar update nudge. */
+  update_available?: boolean
 }
 
 /* POST /relay/pair — one-time pairing token (shown once) plus a

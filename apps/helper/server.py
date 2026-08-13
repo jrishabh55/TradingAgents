@@ -224,8 +224,15 @@ def create_app(
 
     @app.get("/healthz")
     async def healthz() -> dict[str, Any]:
-        """Unauthenticated liveness only — no account data, by design."""
-        return {"status": "ok", "providers": request_registry(app).names()}
+        """Unauthenticated liveness only — no account data, by design.
+
+        ``version`` lets the portal tell a local user their helper is
+        outdated (the web UI's update nudge) without an authenticated call.
+        """
+        from apps.helper.version import __version__
+
+        return {"status": "ok", "version": __version__,
+                "providers": request_registry(app).names()}
 
     async def _provider_state() -> dict[str, Any]:
         out: dict[str, Any] = {

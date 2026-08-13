@@ -203,6 +203,79 @@ def test_status_advertises_the_download_when_a_build_exists(tmp_path, monkeypatc
         assert c.get("/api/helper/status").json()["download_url"] == "https://releases.example/helper.zip"
 
 
+# ---------- helper update nudge ----------
+
+
+def _status_client(monkeypatch, tmp_path):
+    """/api/helper/status with a fake authed user and no local helper."""
+    from fastapi import FastAPI, Request
+    from fastapi.testclient import TestClient
+
+    from apps.api.routes.config import router
+
+    monkeypatch.setenv("TRADINGAGENTS_HOME", str(tmp_path / "empty"))
+    monkeypatch.setenv("TA_HELPER_DOWNLOAD_URL", "https://releases.example/helper")
+    monkeypatch.delenv(helper_backend.HELPER_URL_ENV, raising=False)
+    monkeypatch.delenv(helper_backend.HELPER_TOKEN_ENV, raising=False)
+
+    a = FastAPI()
+
+    @a.middleware("http")
+    async def fake_auth(request: Request, call_next):  # noqa: ANN001
+        request.state.user_id = "u1"
+        return await call_next(request)
+
+    a.include_router(router, prefix="/api")
+    return TestClient(a)
+
+
+def test_relay_helper_reporting_current_version_gets_no_nudge(monkeypatch, tmp_path):
+    from apps.api.relay import RelayConnection, reset_relay_registry_for_tests
+    from apps.helper.version import __version__
+
+    reg = reset_relay_registry_for_tests()
+    conn = RelayConnection("u1", lambda m: None)
+    conn.helper_version = __version__
+    reg.register(conn)
+
+    s = _status_client(monkeypatch, tmp_path).get("/api/helper/status").json()
+    assert s["connected"] is True
+    assert s["helper_version"] == __version__
+    assert s["update_available"] is False
+
+
+def test_relay_helper_with_old_or_unreported_version_gets_the_nudge(monkeypatch, tmp_path):
+    from apps.api.relay import RelayConnection, reset_relay_registry_for_tests
+
+    reg = reset_relay_registry_for_tests()
+    conn = RelayConnection("u1", lambda m: None)
+    conn.helper_version = "0.0.1"
+    reg.register(conn)
+    client = _status_client(monkeypatch, tmp_path)
+    assert client.get("/api/helper/status").json()["update_available"] is True
+
+    # Builds that predate version reporting send no version — by definition
+    # outdated, so the nudge is correct rather than a guess.
+    conn.helper_version = ""
+    s = client.get("/api/helper/status").json()
+    assert s["update_available"] is True and s["helper_version"] is None
+
+
+def test_local_helper_version_drives_the_nudge(monkeypatch, tmp_path):
+    from apps.api.relay import reset_relay_registry_for_tests
+    from apps.helper.version import __version__
+
+    reset_relay_registry_for_tests()
+    monkeypatch.setattr(helper_backend, "local_helper_reachable", lambda **kw: True)
+    monkeypatch.setattr(helper_backend, "local_helper_version", lambda **kw: __version__)
+    client = _status_client(monkeypatch, tmp_path)
+    s = client.get("/api/helper/status").json()
+    assert s["mode"] == "local" and s["update_available"] is False
+
+    monkeypatch.setattr(helper_backend, "local_helper_version", lambda **kw: None)
+    assert client.get("/api/helper/status").json()["update_available"] is True
+
+
 # ---------- provider key mapping ----------
 
 

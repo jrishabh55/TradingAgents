@@ -7,7 +7,7 @@ list — the CLI keeps every upstream provider.
 """
 from __future__ import annotations
 
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Request
 
@@ -259,8 +259,11 @@ def helper_status(request: Request) -> dict:
     from apps.api.integrations.helper_backend import (
         helper_enabled,
         local_helper_reachable,
+        local_helper_version,
     )
     from apps.api.relay import get_relay_registry
+    from apps.helper.server import _is_newer
+    from apps.helper.version import __version__ as latest
 
     import os
 
@@ -272,15 +275,24 @@ def helper_status(request: Request) -> dict:
     if not download_url and _helper_dist_file().is_file():
         download_url = "/api/helper/download"
 
+    def _connected(mode: str, reported: Optional[str]) -> dict:
+        # No reported version means a build that predates reporting — those
+        # are by definition outdated, so the nudge is correct, not a guess.
+        return {
+            "enabled": True, "mode": mode, "connected": True,
+            "download_url": download_url,
+            "helper_version": reported or None,
+            "update_available": (not reported) or _is_newer(latest, reported),
+        }
+
     # Same precedence as graph_factory's routing, so what this reports is what
     # a run would actually use: live local helper first, then the relay.
     if local_helper_reachable():
-        return {"enabled": True, "mode": "local", "connected": True,
-                "download_url": download_url}
+        return _connected("local", local_helper_version())
     user_id = current_user_id(request)
-    if get_relay_registry().is_connected(user_id):
-        return {"enabled": True, "mode": "relay", "connected": True,
-                "download_url": download_url}
+    conn = get_relay_registry().get(user_id)
+    if conn is not None:
+        return _connected("relay", conn.helper_version)
     if helper_enabled():
         # Configured (token file / env) but not answering — stopped daemon.
         return {"enabled": True, "mode": "local", "connected": False,

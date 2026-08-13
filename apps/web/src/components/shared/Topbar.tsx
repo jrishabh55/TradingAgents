@@ -36,17 +36,20 @@ function CreditsPill() {
 
 /** "Get the helper app" link — the download otherwise only surfaces inside
  *  the ChatGPT-subscription provider's setup card, which you'd never see
- *  without selecting that provider first. Hidden when the user's helper is
- *  already connected (nothing to download) or no build is hosted. */
+ *  without selecting that provider first. Shown when no helper is connected
+ *  (install nudge) or the connected one is outdated (update nudge); hidden
+ *  when up to date or no build is hosted. */
 function HelperDownloadLink() {
-  const [url, setUrl] = useState<string | null>(null)
+  const [link, setLink] = useState<{ url: string; update: boolean } | null>(null)
 
   useEffect(() => {
     let stale = false
     api
       .getHelperStatus()
       .then((s) => {
-        if (!stale && !s.connected && s.download_url) setUrl(s.download_url)
+        if (stale || !s.download_url) return
+        if (!s.connected) setLink({ url: s.download_url, update: false })
+        else if (s.update_available) setLink({ url: s.download_url, update: true })
       })
       .catch(() => {
         /* backend down or unauthenticated — no link either way */
@@ -56,16 +59,20 @@ function HelperDownloadLink() {
     }
   }, [])
 
-  if (!url) return null
+  if (!link) return null
   return (
     <a
       className="es-btn ghost sm no-underline"
-      href={url}
+      href={link.url}
       target="_blank"
       rel="noreferrer"
-      title="Run analyses on your ChatGPT subscription via the local helper app"
+      title={
+        link.update
+          ? 'A newer helper version is available — update to get the latest features'
+          : 'Run analyses on your ChatGPT subscription via the local helper app'
+      }
     >
-      Get the helper app ↗
+      {link.update ? 'Update the helper ↗' : 'Get the helper app ↗'}
     </a>
   )
 }

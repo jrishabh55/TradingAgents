@@ -79,11 +79,17 @@ class RelayClient:
     async def _session(self) -> None:
         import websockets
 
+        from apps.helper.version import __version__
+
         headers = {"Authorization": f"Bearer {self._auth}"}
         async with websockets.connect(self.url, additional_headers=headers) as ws:
             await ws.send(json.dumps({
                 "type": "hello",
                 "providers": self._registry.names(),
+                # The portal compares this against its own tree to offer the
+                # web-UI update nudge; helpers that predate the field read as
+                # "unknown", which the portal treats as outdated.
+                "version": __version__,
             }))
             logger.info("relay connected to %s", self.url)
             self.connected = True

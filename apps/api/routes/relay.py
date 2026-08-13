@@ -203,6 +203,7 @@ async def relay_socket(websocket: WebSocket) -> None:
                 conn.resolve(message.get("id", ""), message.get("payload") or {})
             elif kind == "hello":
                 conn.providers = list(message.get("providers") or [])
+                conn.helper_version = str(message.get("version") or "")
             elif kind == "ping":
                 await websocket.send_json({"type": "pong"})
     except WebSocketDisconnect:

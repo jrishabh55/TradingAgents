@@ -84,6 +84,9 @@ class RelayConnection:
         self._pending: Dict[str, _Pending] = {}
         self.connected_at = time.time()
         self.providers: list[str] = []
+        #: Version the helper reported in its hello frame; "" for helpers
+        #: that predate version reporting (treated as outdated by the UI).
+        self.helper_version: str = ""
 
     async def call(
         self, provider: str, body: Dict[str, Any], *, timeout_s: float = DEFAULT_CALL_TIMEOUT_S

@@ -131,6 +131,29 @@ def local_helper_reachable(timeout_s: float = 1.0) -> bool:
         return False
 
 
+def local_helper_version(timeout_s: float = 1.0) -> Optional[str]:
+    """Version the LOCAL helper reports on /healthz, or None.
+
+    None covers both "not reachable" and "predates version reporting" —
+    callers treat unknown as outdated, which is exactly right for old
+    builds.
+    """
+    import json
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+
+    parts = urllib.parse.urlsplit(helper_base_url())
+    probe = f"{parts.scheme}://{parts.netloc}/healthz"
+    try:
+        with urllib.request.urlopen(probe, timeout=timeout_s) as res:
+            payload = json.loads(res.read())
+        version = payload.get("version") if isinstance(payload, dict) else None
+        return str(version) if version else None
+    except (urllib.error.URLError, OSError, ValueError):
+        return None
+
+
 def helper_ready(user_id: Optional[str]) -> bool:
     """A live local helper OR this user's helper connected over the relay."""
     return local_helper_reachable() or relay_available(user_id)
