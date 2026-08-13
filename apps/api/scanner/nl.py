@@ -54,10 +54,16 @@ def _invoke(messages: list) -> str:
 
 
 def _extract_json(text: str) -> dict:
-    m = re.search(r"\{.*\}", text, re.DOTALL)
-    if not m:
-        raise ValueError("no JSON object in model output")
-    return json.loads(m.group(0))
+    decoder = json.JSONDecoder()
+    for idx, char in enumerate(text):
+        if char == "{":
+            try:
+                obj, _ = decoder.raw_decode(text, idx)
+                if isinstance(obj, dict):
+                    return obj
+            except json.JSONDecodeError:
+                continue
+    raise ValueError("no JSON object in model output")
 
 
 def generate_definition(prompt: str) -> tuple[dict, str]:
