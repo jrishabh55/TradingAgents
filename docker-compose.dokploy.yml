@@ -60,6 +60,9 @@ services:
       # limit, works from datacenter IPs where the public feed 429s.
       REDDIT_CLIENT_ID: ${REDDIT_CLIENT_ID:-}
       REDDIT_CLIENT_SECRET: ${REDDIT_CLIENT_SECRET:-}
+      # Where users get the helper app (Topbar link + helper update checks).
+      # Points at the GitHub release; unset → no download link is shown.
+      TA_HELPER_DOWNLOAD_URL: ${TA_HELPER_DOWNLOAD_URL:-}
 
       # State on the volume so it survives redeploys.
       WEBAPP_DB_PATH: /home/appuser/.tradingagents/webapp.sqlite
