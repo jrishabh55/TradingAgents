@@ -9,8 +9,18 @@ import type {
   PairResponse,
   RunRequest,
   RunSummary,
+  TickerHit,
 } from '#/lib/types'
 import { Topbar } from '#/components/shared/Topbar'
+/* Raw cmdk input: ui/command's CommandInput carries search-box chrome that
+   doesn't fit the hero bar; the primitive takes the hero's own styling. */
+import { Command as CommandPrimitive } from 'cmdk'
+import {
+  Command,
+  CommandEmpty,
+  CommandItem,
+  CommandList,
+} from '#/components/ui/command'
 import { FlowAdvanced } from './FlowAdvanced'
 import { GeminiSetup } from './GeminiSetup'
 
@@ -75,6 +85,14 @@ export function FlowLanding() {
      refetch after a key save/remove. */
   const [geminiStatus, setGeminiStatus] = useState<GeminiKeyStatus | null>(null)
   const [geminiRefresh, setGeminiRefresh] = useState(0)
+  /* Yahoo typeahead: only open after the user actually types (not on mount
+     with the default ticker). Keyboard nav and row highlight come from cmdk. */
+  const [hits, setHits] = useState<TickerHit[]>([])
+  const [searchOpen, setSearchOpen] = useState(false)
+  /* True only after a response for the CURRENT query came back empty —
+     never while a fetch is still in flight, so "no matches" can't flash
+     before results arrive. */
+  const [noResults, setNoResults] = useState(false)
 
   const today = useMemo(() => new Date().toISOString().slice(0, 10), [])
   const [form, setForm] = useState<FlowState>({
@@ -86,7 +104,7 @@ export function FlowLanding() {
     shallowThinker: '',
     deepThinker: '',
     language: 'English',
-    checkpoint: false,
+    checkpoint: true,
   })
 
   useEffect(() => {
@@ -226,6 +244,44 @@ export function FlowLanding() {
     setForm((f) => ({ ...f, ...p }))
   }
 
+  /* Debounced ticker search. Re-runs per keystroke; cleanup marks the
+     in-flight request stale so a slow earlier response can't clobber a
+     newer one. */
+  useEffect(() => {
+    if (!searchOpen) return
+    const q = form.ticker.trim()
+    if (q.length < 2) {
+      setHits([])
+      setNoResults(false)
+      return
+    }
+    let stale = false
+    const t = setTimeout(() => {
+      api
+        .searchTickers(q)
+        .then((r) => {
+          if (stale) return
+          setHits(r.results)
+          setNoResults(r.results.length === 0)
+        })
+        .catch(() => {
+          /* API/Yahoo failure ≠ "this ticker doesn't exist" — stay silent. */
+          if (!stale) setHits([])
+        })
+    }, 250)
+    return () => {
+      stale = true
+      clearTimeout(t)
+    }
+  }, [form.ticker, searchOpen])
+
+  function pickHit(hit: TickerHit) {
+    patch({ ticker: hit.symbol })
+    setSearchOpen(false)
+    setHits([])
+    setNoResults(false)
+  }
+
   function toggleAnalyst(id: string) {
     setForm((f) => ({
       ...f,
@@ -361,7 +417,18 @@ export function FlowLanding() {
                   '0 0 0 4px rgba(79,124,255,0.08), 0 12px 40px rgba(0,0,0,0.4)',
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+              <Command
+                shouldFilter={false}
+                loop
+                className="overflow-visible rounded-none bg-transparent p-0"
+                style={{
+                  display: 'flex',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 0,
+                  position: 'relative',
+                }}
+              >
                 <div
                   style={{
                     paddingLeft: 18,
@@ -372,9 +439,18 @@ export function FlowLanding() {
                 >
                   $
                 </div>
-                <input
+                <CommandPrimitive.Input
                   value={form.ticker}
-                  onChange={(e) => patch({ ticker: e.target.value })}
+                  onValueChange={(v) => {
+                    patch({ ticker: v })
+                    setSearchOpen(true)
+                    setNoResults(false)
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') setSearchOpen(false)
+                  }}
+                  onBlur={() => setSearchOpen(false)}
+                  placeholder="Ticker or company name"
                   spellCheck={false}
                   style={{
                     flex: 1,
@@ -424,7 +500,66 @@ export function FlowLanding() {
                 >
                   {submitting ? 'Starting…' : 'Start analysis →'}
                 </button>
-              </div>
+                {searchOpen && (hits.length > 0 || noResults) && (
+                  <CommandList
+                    style={{
+                      position: 'absolute',
+                      top: '100%',
+                      left: 0,
+                      right: 0,
+                      zIndex: 20,
+                      marginTop: 4,
+                      background: 'var(--bg-1)',
+                      border: '1px solid var(--line-2)',
+                      borderRadius: 12,
+                      boxShadow: '0 12px 40px rgba(0,0,0,0.5)',
+                    }}
+                  >
+                    <CommandEmpty style={{ color: 'var(--text-3)' }}>
+                      No matches on Yahoo Finance. If you know the symbol,
+                      type it exactly — with its exchange suffix for non-US
+                      listings (e.g. RELIANCE.NS).
+                    </CommandEmpty>
+                    {hits.map((h) => (
+                      <CommandItem
+                        key={h.symbol}
+                        value={h.symbol}
+                        onSelect={() => pickHit(h)}
+                        /* Keep focus in the input: without this, blur closes
+                           the list before the click lands. */
+                        onMouseDown={(e) => e.preventDefault()}
+                        className="cursor-pointer gap-2.5 px-4 py-2.5"
+                      >
+                        <span
+                          className="es-mono"
+                          style={{ fontWeight: 600, minWidth: 90 }}
+                        >
+                          {h.symbol}
+                        </span>
+                        <span
+                          style={{
+                            flex: 1,
+                            color: 'var(--text-3)',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                          }}
+                        >
+                          {h.name}
+                        </span>
+                        <span
+                          style={{ fontSize: 11, color: 'var(--text-4)' }}
+                        >
+                          {h.exchange}
+                          {h.type && h.type !== 'EQUITY'
+                            ? ` · ${h.type.toLowerCase()}`
+                            : ''}
+                        </span>
+                      </CommandItem>
+                    ))}
+                  </CommandList>
+                )}
+              </Command>
               <div
                 style={{
                   display: 'flex',

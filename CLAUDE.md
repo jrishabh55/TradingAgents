@@ -34,6 +34,11 @@ If a web-layer change *seems* to require touching the core, stop and ask first �
 - "Frontend" means `apps/web/`.
 - "The CLI" or "the agent core" means the `cli/` + `tradingagents/` Python code — only touch it on explicit request.
 
+## Frontend conventions
+
+- `apps/web/` has **shadcn/ui** installed (`src/components/ui/`, themed onto the design system via `src/styles.css`). Prefer these components over hand-rolled elements.
+- If a needed component isn't installed yet, add it with `npx shadcn@latest add <name>` (run inside `apps/web/`) rather than styling it from scratch.
+
 ## Dev workflow
 
 - `DEV.md` (project root) — Docker dev compose + native dev workflows, env-var conventions, common gotchas. Read this first if the user is debugging a dev-environment problem rather than a code problem.

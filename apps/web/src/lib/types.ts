@@ -53,6 +53,14 @@ export interface RunDetail extends RunSummary {
   risk_debate_state?: Record<string, unknown> | null
 }
 
+/* One hit from GET /search/tickers — Yahoo Finance typeahead. */
+export interface TickerHit {
+  symbol: string
+  name: string
+  exchange: string
+  type: string
+}
+
 export interface ProviderOption {
   key: string
   label: string

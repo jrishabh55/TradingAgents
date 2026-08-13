@@ -88,7 +88,7 @@ class RunRequest(BaseModel):
     openai_reasoning_effort: Optional[str] = Field(None, description="low | medium | high — only for OpenAI reasoning models.")
     anthropic_effort: Optional[str] = Field(None, description="high | minimal — only for Anthropic thinking-mode.")
     output_language: str = Field("English", description="Free-text language label injected into agent prompts.")
-    checkpoint_enabled: bool = Field(False, description="If true, LangGraph SqliteSaver enables resume on crash.")
+    checkpoint_enabled: bool = Field(True, description="If true, LangGraph SqliteSaver enables resume on crash.")
 
 
 class RunSummary(BaseModel):

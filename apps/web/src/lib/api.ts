@@ -9,6 +9,7 @@ import type {
   RunDetail,
   RunRequest,
   RunSummary,
+  TickerHit,
 } from './types'
 
 /* Default to /api so the Cloudflare Worker (in prod) or Vite proxy (in dev)
@@ -152,6 +153,11 @@ export const api = {
      human-readable `detail` (no checkpoint, already resuming, limit hit). */
   resumeRun: (id: string) =>
     jsonFetch<RunDetail>(`/runs/${id}/resume`, { method: 'POST' }),
+  /* Yahoo Finance ticker typeahead, proxied server-side (Yahoo blocks CORS). */
+  searchTickers: (q: string) =>
+    jsonFetch<{ results: TickerHit[] }>(
+      `/search/tickers?q=${encodeURIComponent(q)}`,
+    ),
   getHelperStatus: () => jsonFetch<HelperStatus>('/helper/status'),
   /* Gemini BYOC credential — the key itself never comes back, only last4. */
   getGeminiKeyStatus: () => jsonFetch<GeminiKeyStatus>('/keys/gemini'),
