@@ -93,7 +93,7 @@ One schema shared by the builder UI, the NL generator, prebuilt seeds, storage, 
 - **Flow:** OBV, MFI, CMF
 - **Rolling:** HIGHEST, LOWEST, SUM, AVG, COUNT (count of a boolean sub-condition over N bars)
 
-Indicators computed with **`pandas-ta`** (one new Python dependency). Candlestick patterns are hand-rolled vectorized OHLC rules in `scanner/patterns.py` (~3 lines each; no TA-Lib C dependency).
+Indicators computed **natively in pandas on wide frames** (time × symbols) — rolling/ewm ops vectorize across the whole universe at once, which is what makes the ≤3s target reachable; recursive indicators (Supertrend, PSAR) loop over time but stay vectorized across symbols. **No new Python dependency.** Candlestick patterns are hand-rolled vectorized OHLC rules in `scanner/patterns.py` (no TA-Lib C dependency).
 
 ### Condition node
 
