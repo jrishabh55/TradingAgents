@@ -108,6 +108,23 @@ class Condition(BaseModel):
                 raise ValueError("pattern condition takes no op/right")
         elif self.op is None or self.right is None:
             raise ValueError("condition needs op and right")
+        else:
+            # Cross-validation of op vs operand kinds (when op and right are present)
+            if self.right.pattern is not None:
+                raise ValueError("pattern operand only allowed as a bare left condition")
+            if self.op == "in":
+                if self.right.const_list is None:
+                    raise ValueError("'in' requires a const_list right operand")
+            else:
+                if self.right.const_list is not None:
+                    raise ValueError("const_list is only valid with the 'in' operator")
+            if self.op in ("crosses_above", "crosses_below"):
+                if (self.left.meta is not None or self.left.const_str is not None or
+                    self.right.meta is not None or self.right.const_str is not None):
+                    raise ValueError("crosses require numeric operands")
+            if self.left.meta is not None:
+                if self.op not in ("==", "!=", "in"):
+                    raise ValueError("meta conditions only support ==, !=, in")
         return self
 
 

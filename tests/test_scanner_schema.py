@@ -87,3 +87,42 @@ def test_size_limit():
     big = {"logic": "AND", "children": [dict(cond(), note="x" * 40000)]}
     with pytest.raises(DefinitionError):
         parse_definition(big)
+
+
+def test_op_operand_cross_validation():
+    # Pattern operand on right side should fail
+    with pytest.raises(ValidationError):
+        parse_definition({"logic": "AND", "children": [
+            {"timeframe": "1d", "left": {"field": "close"}, "op": ">", "right": {"pattern": "doji"}}]})
+
+    # 'in' operator requires const_list on right
+    with pytest.raises(ValidationError):
+        parse_definition({"logic": "AND", "children": [
+            {"timeframe": "1d", "left": {"field": "close"}, "op": "in", "right": {"const": 100}}]})
+
+    # const_list only valid with 'in' operator
+    with pytest.raises(ValidationError):
+        parse_definition({"logic": "AND", "children": [
+            {"timeframe": "1d", "left": {"field": "close"}, "op": ">", "right": {"const_list": ["a", "b"]}}]})
+
+    # crosses_above/crosses_below require numeric operands (no meta/const_str)
+    with pytest.raises(ValidationError):
+        parse_definition({"logic": "AND", "children": [
+            {"timeframe": "1d", "left": {"meta": "sector"}, "op": "crosses_above", "right": {"const": 100}}]})
+
+    with pytest.raises(ValidationError):
+        parse_definition({"logic": "AND", "children": [
+            {"timeframe": "1d", "left": {"field": "close"}, "op": "crosses_above", "right": {"const_str": "bull"}}]})
+
+    # meta conditions only support ==, !=, in
+    with pytest.raises(ValidationError):
+        parse_definition({"logic": "AND", "children": [
+            {"timeframe": "1d", "left": {"meta": "sector"}, "op": ">", "right": {"const": 100}}]})
+
+    # Valid meta 'in' condition should parse
+    g = parse_definition({"logic": "AND", "children": [
+        {"timeframe": "1d", "left": {"meta": "sector"}, "op": "in", "right": {"const_list": ["IT", "Banking"]}}]})
+    assert isinstance(g, Group)
+    assert g.children[0].left.meta == "sector"
+    assert g.children[0].op == "in"
+    assert g.children[0].right.const_list == ["IT", "Banking"]
