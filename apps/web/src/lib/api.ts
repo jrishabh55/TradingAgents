@@ -11,6 +11,7 @@ import type {
   RunSummary,
   TickerHit,
 } from './types'
+import type { ScanGroup, ScanResult, ScannerSummary } from './scanner-types'
 
 /* Default to /api so the Cloudflare Worker (in prod) or Vite proxy (in dev)
    can route to the FastAPI backend. Override at build time with VITE_API_BASE
@@ -123,6 +124,8 @@ async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
     }
     throw new ApiError(res.status, res.statusText, detail, raw)
   }
+  /* 204 No Content (e.g. DELETE /scanners/:id) has no body to parse. */
+  if (res.status === 204) return undefined as T
   return res.json() as Promise<T>
 }
 
@@ -188,6 +191,34 @@ export const api = {
     const token = await getAuthToken()
     return token ? `${base}?token=${encodeURIComponent(token)}` : base
   },
+  listScanners: () => jsonFetch<ScannerSummary[]>('/scanners'),
+  createScanner: (body: { name: string; description?: string; definition: ScanGroup }) =>
+    jsonFetch<ScannerSummary>('/scanners', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  updateScanner: (
+    id: string,
+    body: { name: string; description?: string; definition: ScanGroup },
+  ) =>
+    jsonFetch<ScannerSummary>(`/scanners/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+  deleteScanner: (id: string) =>
+    jsonFetch<void>(`/scanners/${id}`, { method: 'DELETE' }),
+  runScanner: (id: string) =>
+    jsonFetch<ScanResult>(`/scanners/${id}/run`, { method: 'POST' }),
+  previewScanner: (definition: ScanGroup) =>
+    jsonFetch<ScanResult>('/scanners/preview', {
+      method: 'POST',
+      body: JSON.stringify({ definition }),
+    }),
+  nlScanner: (prompt: string) =>
+    jsonFetch<{ definition: ScanGroup; explanation: string }>('/scanners/nl', {
+      method: 'POST',
+      body: JSON.stringify({ prompt }),
+    }),
 }
 
 export { API_BASE }
