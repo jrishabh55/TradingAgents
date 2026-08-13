@@ -1,5 +1,10 @@
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap");
-@import "tailwindcss";
+/* source("./") pins utility scanning to src/ — automatic detection scans the
+   project root respecting .gitignore, which .dockerignore strips from the
+   Docker build context, so the scan set (and the generated CSS bytes, and
+   therefore the hashed filename) silently differed between host and image
+   builds. All markup lives under src/, so this loses nothing. */
+@import "tailwindcss" source("./");
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 

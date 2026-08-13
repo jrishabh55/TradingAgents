@@ -87,7 +87,7 @@ services:
   web:
     build:
       context: ./apps/web
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.dev
     image: tradingagents-web-dev:latest
     environment:
       # Internal DNS: the API service is reachable at hostname `api`

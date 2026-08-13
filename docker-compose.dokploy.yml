@@ -23,13 +23,11 @@
 #   - No source bind mounts — the image carries the source; a bind mount would
 #     need host paths that don't exist on the server.
 #
-# KNOWN LIMITATION: the `web` image runs Vite's DEV server (see
-# apps/web/Dockerfile — NODE_ENV=development, entrypoint runs `vite dev` under
-# workerd). It works, but it ships source maps, keeps an HMR websocket open, and
-# costs far more memory than a built server. The production fix is to drop
-# @cloudflare/vite-plugin, build a Node server target, and serve that. Tracked
-# as a follow-up; this file is deliberately the shortest path to a live
-# deployment on your own infrastructure.
+# The `web` image is a real production build (apps/web/Dockerfile:
+# `WEB_TARGET=node vite build`, served by server-node.mjs under plain Node).
+# It used to run Vite's dev server under workerd — that kept an HMR websocket
+# open in every browser tab, and each redeploy hot-patched running pages into
+# a corrupted module graph. Dev-mode images live in apps/web/Dockerfile.dev.
 
 services:
   api:
@@ -110,19 +108,17 @@ services:
     build:
       context: ./apps/web
       dockerfile: Dockerfile
+      args:
+        # Baked into the client bundle at build time (Vite inlines VITE_*
+        # vars during `vite build`) — must be a build arg, not runtime env.
+        VITE_CLERK_PUBLISHABLE_KEY: ${VITE_CLERK_PUBLISHABLE_KEY:?set VITE_CLERK_PUBLISHABLE_KEY or the sign-in UI cannot load}
     environment:
-      # Internal DNS on the compose network. The entrypoint patches
-      # wrangler.jsonc with this so workerd's /api/* proxy reaches the API.
+      # Internal DNS on the compose network. Read at request time by the
+      # /api/* proxy route inside the built server (apps/web/src/routes/api.$.tsx).
       WEBAPP1_API_BASE: http://api:8080
-      # Vite reads VITE_*-prefixed variables straight from the process
-      # environment (vite/dist/node/chunks/node.js: it copies every process.env
-      # key matching the prefix), so no .env file is needed in the image.
-      VITE_CLERK_PUBLISHABLE_KEY: ${VITE_CLERK_PUBLISHABLE_KEY:?set VITE_CLERK_PUBLISHABLE_KEY or the sign-in UI cannot load}
-      # Comma-separated public hostnames. REQUIRED: Vite's dev server rejects
-      # requests whose Host header it doesn't recognise ("Blocked request. This
-      # host is not allowed."), and Traefik forwards your real domain. Set this
-      # to the same domain you configure in Dokploy's Domains tab.
-      VITE_ALLOWED_HOSTS: ${VITE_ALLOWED_HOSTS:?set VITE_ALLOWED_HOSTS to your public domain, e.g. app.example.com}
+      # VITE_ALLOWED_HOSTS is gone on purpose: it guarded Vite's DEV server
+      # host check. Production is a plain Node server (apps/web/server-node.mjs)
+      # with no host filtering — Traefik owns the domain routing.
     expose:
       - "3000"
     healthcheck:
@@ -136,8 +132,7 @@ services:
       interval: 15s
       timeout: 5s
       retries: 10
-      # Vite's first cold start installs nothing but does optimize deps.
-      start_period: 60s
+      start_period: 30s
     depends_on:
       api:
         condition: service_healthy

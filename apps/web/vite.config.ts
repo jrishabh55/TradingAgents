@@ -24,6 +24,14 @@ const ALLOWED_HOSTS = process.env.VITE_ALLOWED_HOSTS?.split(',')
   .map((h) => h.trim())
   .filter(Boolean)
 
+/* WEB_TARGET=node builds/serves WITHOUT the Cloudflare plugin: TanStack
+   Start's default Node server target. Used by the Docker prod image
+   (apps/web/Dockerfile) — running `vite dev` + workerd in production left
+   live HMR sockets in users' tabs, and every redeploy hot-patched a running
+   page into a corrupted module graph. Local dev and the Cloudflare Workers
+   deploy path keep the plugin (the default). */
+const NODE_TARGET = process.env.WEB_TARGET === 'node'
+
 const config = defineConfig({
   resolve: { tsconfigPaths: true },
   server: {
@@ -47,7 +55,7 @@ const config = defineConfig({
   },
   plugins: [
     devtools(),
-    cloudflare({ viteEnvironment: { name: 'ssr' } }),
+    ...(NODE_TARGET ? [] : [cloudflare({ viteEnvironment: { name: 'ssr' } })]),
     tailwindcss(),
     tanstackStart(),
     viteReact(),

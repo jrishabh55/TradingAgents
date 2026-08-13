@@ -166,12 +166,34 @@ DB, and run reports.
 `backend` exposes `/health`; webapp2's `depends_on.condition: service_healthy`
 ensures Vite only starts after FastAPI is reachable.
 
+### Production (self-hosted Docker — how Dokploy runs it)
+
+`Dockerfile` (no suffix) is the PRODUCTION image: a multi-stage build that
+runs `WEB_TARGET=node vite build` (TanStack Start's Node server target —
+`WEB_TARGET=node` drops `@cloudflare/vite-plugin`, see `vite.config.ts`) and
+serves `dist/` with plain Node via `server-node.mjs` (srvx listener: static
+assets from `dist/client`, everything else — SSR + the `/api/$` proxy route —
+into the built fetch handler). Two things moved at build time:
+
+- `VITE_CLERK_PUBLISHABLE_KEY` is inlined into the client bundle by
+  `vite build`, so it must be a Docker **build arg**, not runtime env.
+- `VITE_ALLOWED_HOSTS` is gone in prod — it guarded Vite's dev-server host
+  check, which no longer exists.
+
+`WEBAPP1_API_BASE` stays a runtime env var (the proxy route reads it per
+request). Dev images (`vite dev` + HMR + workerd) live in `Dockerfile.dev`,
+used by `docker-compose.dev.yml` and `docker-compose.fullstack.yml`.
+
+Never run `vite dev` in production: every open tab holds a live HMR
+websocket, and a redeploy hot-patches running pages into a corrupted module
+graph (this happened; see git history for 2026-08-13).
+
 ### Production Cloudflare deploy
 
-For prod (Cloudflare Workers), run `webapp/Dockerfile.webapp` somewhere
+For prod on Cloudflare Workers, run the FastAPI backend somewhere
 reachable, set `WEBAPP1_API_BASE` either in `wrangler.jsonc` `vars`
 (non-secret) or via `wrangler secret put WEBAPP1_API_BASE` (secret).
-Cloudflare drops idle long-lived connections at 100s; webapp1's 15s
+Cloudflare drops idle long-lived connections at 100s; the API's 15s
 heartbeat keeps SSE alive.
 
 ## Known gotchas

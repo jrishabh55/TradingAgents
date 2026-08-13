@@ -60,7 +60,7 @@ services:
   web:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.dev
     image: tradingagents-web:latest
     environment:
       # Internal DNS — both services share the `tradingagents_net` network and
