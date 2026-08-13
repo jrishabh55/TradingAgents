@@ -1,0 +1,6 @@
+{"name": "Bollinger squeeze breakout", "description": "Close breaks the upper band after a tight-band squeeze.",
+ "definition": {"logic": "AND", "children": [
+   {"timeframe": "1d", "left": {"field": "close"}, "op": ">",
+    "right": {"fn": "BBANDS", "of": "close", "period": 20, "component": "upper"}},
+   {"timeframe": "1d", "left": {"fn": "BBWIDTH", "of": "close", "period": 20, "bars_ago": 1},
+    "op": "<", "right": {"const": 8}}]}}

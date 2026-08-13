@@ -1,0 +1,8 @@
+{"name": "Momentum above 200 SMA", "description": "Uptrend stack: close > SMA(200), EMA(20) > EMA(50), RSI > 60.",
+ "definition": {"logic": "AND", "children": [
+   {"timeframe": "1d", "left": {"field": "close"}, "op": ">",
+    "right": {"fn": "SMA", "of": "close", "period": 200}},
+   {"timeframe": "1d", "left": {"fn": "EMA", "of": "close", "period": 20}, "op": ">",
+    "right": {"fn": "EMA", "of": "close", "period": 50}},
+   {"timeframe": "1d", "left": {"fn": "RSI", "of": "close", "period": 14}, "op": ">",
+    "right": {"const": 60}}]}}

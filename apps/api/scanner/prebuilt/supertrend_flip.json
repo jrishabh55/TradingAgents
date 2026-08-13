@@ -1,0 +1,4 @@
+{"name": "Supertrend flip", "description": "Close crosses above the Supertrend(10, 3) line.",
+ "definition": {"logic": "AND", "children": [
+   {"timeframe": "1d", "left": {"field": "close"}, "op": "crosses_above",
+    "right": {"fn": "SUPERTREND", "period": 10}}]}}

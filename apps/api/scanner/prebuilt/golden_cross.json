@@ -1,0 +1,4 @@
+{"name": "Golden cross", "description": "SMA(50) crosses above SMA(200) on the daily.",
+ "definition": {"logic": "AND", "children": [
+   {"timeframe": "1d", "left": {"fn": "SMA", "of": "close", "period": 50},
+    "op": "crosses_above", "right": {"fn": "SMA", "of": "close", "period": 200}}]}}

@@ -1,0 +1,5 @@
+{"name": "Volume spike", "description": "Volume above 2x its 20-day average with a positive close.",
+ "definition": {"logic": "AND", "children": [
+   {"timeframe": "1d", "left": {"field": "volume"}, "op": ">",
+    "right": {"expr": "*", "args": [{"const": 2}, {"fn": "SMA", "of": "volume", "period": 20}]}},
+   {"timeframe": "1d", "left": {"field": "change_pct"}, "op": ">", "right": {"const": 0}}]}}

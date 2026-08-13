@@ -1,0 +1,3 @@
+{"name": "Three white soldiers", "description": "Three consecutive strong bullish candles.",
+ "definition": {"logic": "AND", "children": [
+   {"timeframe": "1d", "left": {"pattern": "three_white_soldiers"}}]}}

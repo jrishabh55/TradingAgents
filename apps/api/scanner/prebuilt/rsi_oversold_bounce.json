@@ -1,0 +1,4 @@
+{"name": "RSI oversold bounce", "description": "RSI(14) crosses back above 30 from oversold.",
+ "definition": {"logic": "AND", "children": [
+   {"timeframe": "1d", "left": {"fn": "RSI", "of": "close", "period": 14},
+    "op": "crosses_above", "right": {"const": 30}}]}}
