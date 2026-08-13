@@ -85,13 +85,19 @@ async def ingest_loop() -> None:
     if store.instruments_df().empty:
         await asyncio.to_thread(seed_universe, store)
         logger.info("scanner universe seeded")
+    enrich_done_for = ""
     if store.latest_ts("1d") is None:
         logger.info("scanner initial backfill starting")
         await asyncio.to_thread(refresh_all, store)
+        # Fresh deploys would otherwise sit with NULL sectors/fundamentals
+        # until the first Saturday sweep — enrich right after the initial
+        # backfill instead, and mark this week done so Saturday doesn't redo it.
+        await asyncio.to_thread(enrich_universe, store)
+        now0 = datetime.now(IST)
+        enrich_done_for = f"{now0.isocalendar().year}-{now0.isocalendar().week}"
 
     last_intraday = 0.0
     eod_done_for = ""
-    enrich_done_for = ""
     while True:
         try:
             now = datetime.now(IST)

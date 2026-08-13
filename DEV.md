@@ -172,6 +172,12 @@ What goes here:
   dev to skip it — see `apps/api/CLERK_SETUP.md`)
 - Optional overrides: `WEBAPP_DB_PATH`, `WEBAPP_CONCURRENCY`,
   `WEBAPP_CACHE_TTL_SECONDS`, etc.
+- `SCANNER_DB_PATH` — SQLite path for the stock scanner (instruments/bars/
+  saved scanners), separate from `WEBAPP_DB_PATH` but same volume in Docker
+  (default `data/scanner.sqlite` if unset — fine for native dev, not for a
+  container without a persistent volume mounted there). `SCANNER_INGEST` —
+  set to `0` to disable the background yfinance ingest loop (default on);
+  handy when iterating on scanner code without waiting on network fetches.
 
 See `.env.example` for the template.
 

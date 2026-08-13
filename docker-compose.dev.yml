@@ -44,6 +44,8 @@ services:
       WEBAPP_DB_PATH: /home/appuser/.tradingagents/webapp.sqlite
       WEBAPP_REPORTS_DIR: /home/appuser/.tradingagents/webapp_reports
       WEBAPP_PER_USER_MEMORY_DIR: /home/appuser/.tradingagents/memory_per_user
+      # Stock scanner's own SQLite DB — same volume as WEBAPP_DB_PATH, separate file.
+      SCANNER_DB_PATH: /home/appuser/.tradingagents/scanner.sqlite
       # Dev-friendly concurrency. Per-user serialization in the runner
       # makes >1 safe across users; bump this if you simulate multiple
       # sign-ins concurrently. See apps/api/jobs/runner.py.

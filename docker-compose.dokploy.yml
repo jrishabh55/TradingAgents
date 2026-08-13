@@ -67,6 +67,8 @@ services:
       # State on the volume so it survives redeploys.
       WEBAPP_DB_PATH: /home/appuser/.tradingagents/webapp.sqlite
       WEBAPP_REPORTS_DIR: /home/appuser/.tradingagents/webapp_reports
+      # Stock scanner's own SQLite DB — same volume as WEBAPP_DB_PATH, separate file.
+      SCANNER_DB_PATH: /home/appuser/.tradingagents/scanner.sqlite
       # Worker threads inside this one container. This is how you scale, NOT
       # replicas — see the comment on `deploy` below.
       WEBAPP_CONCURRENCY: ${WEBAPP_CONCURRENCY:-10}
