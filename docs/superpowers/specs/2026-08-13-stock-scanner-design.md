@@ -41,6 +41,7 @@ SQLite table `instruments`: `symbol` (NSE code), `yf_symbol` (`.NS`-suffixed), `
 SQLite table `bars`: `(symbol, timeframe, ts, open, high, low, close, volume)`, PK `(symbol, timeframe, ts)`. Same SQLite conventions as the runs store (WAL, per-call connections). Separate DB file `scanner.db` in the same mounted volume so scan I/O never contends with run/SSE writes.
 
 - **Timeframes stored:** `1d`, `1h`, `15m`, `5m`. Weekly/monthly are resampled from `1d` at scan time (one pandas resample). No `1m` in v1.
+- **Backfill:** first ingest run backfills each timeframe to the retention depth (yfinance serves ~60 days of 15m/5m history, ~2 years of 1h), so intraday historical conditions ("close 5 candles ago", rolling highs, long MAs) work from day one.
 - **Retention:** last ~320 bars per (symbol, timeframe) — enough for SMA(200)-class warm-up on every timeframe. Old bars pruned by ingest. Total ≈ 2,000 × 4 × 320 ≈ 2.5M rows ceiling; SQLite is comfortable here. Named upgrade path if scans slow down: DuckDB.
 
 ### Ingest
@@ -130,7 +131,7 @@ Indicators computed with **`pandas-ta`** (one new Python dependency). Candlestic
 
 `apps/web/src/routes/`:
 
-- **`/scanners`** — prebuilt gallery + "My scanners" list; run button per scanner; results in a sortable shadcn Table (symbol, price, % change, volume, rvol, plus one column per scan operand). "Data as of HH:MM (delayed)" header. Row click → dialog with the free TradingView symbol widget.
+- **`/scanners`** — prebuilt gallery + "My scanners" list; run button per scanner; results in a sortable shadcn Table (symbol, price, % change, volume, rvol, plus one column per scan operand). "Data as of HH:MM (delayed)" header. Row click → dialog with the free TradingView symbol widget for **live charts** — the widget streams TradingView's own NSE feed (realtime on TV), independent of our delayed scan bars.
 - **`/scanners/new`** (and `/scanners/$id/edit`) — builder page:
   - NL box at top ("Describe your scan…") → calls `/scanners/nl` → fills the form below for review.
   - Manual builder: condition rows (timeframe select · operand picker with params · operator select · right operand/value), AND/OR grouping. AST supports arbitrary nesting; **the UI renders two group levels**, which covers real-world scans.
