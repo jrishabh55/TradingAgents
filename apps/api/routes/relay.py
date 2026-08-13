@@ -213,6 +213,48 @@ async def relay_socket(websocket: WebSocket) -> None:
         registry.unregister(conn)
 
 
+#: Pseudo-provider for data-proxy frames. Must match apps/helper/fetcher.py.
+FETCH_PROVIDER = "__fetch__"
+
+#: A fetch is a single HTTP GET, not a minutes-long LLM call — bound it
+#: accordingly so a hung helper fails the fetch (and the caller falls back
+#: to a direct fetch) instead of stalling an analyst for 15 minutes.
+FETCH_TIMEOUT_S = 60.0
+
+
+@router.post("/internal/relay/fetch")
+async def relay_fetch_shim(request: Request) -> Any:
+    """Bridge one pipeline data-fetch onto the user's helper socket.
+
+    Same auth as the LLM shim (per-run internal token). The helper enforces
+    its own host allowlist; this route knowingly forwards whatever the
+    pipeline asked for and returns the helper's verdict verbatim — including
+    ``{"ok": false}`` rejections, which callers treat as "proxy unavailable"
+    and satisfy with a direct fetch.
+    """
+    auth = request.headers.get("authorization", "")
+    token = auth[len("Bearer "):].strip() if auth.startswith("Bearer ") else ""
+    user_id = get_internal_tokens().resolve(token) if token else None
+    if user_id is None:
+        return JSONResponse(status_code=401, content={"ok": False,
+                                                      "error": "invalid internal relay token"})
+    try:
+        body = await request.json()
+    except ValueError:
+        return JSONResponse(status_code=400, content={"ok": False,
+                                                      "error": "request body is not valid JSON"})
+
+    try:
+        payload = await get_relay_registry().dispatch(
+            user_id, FETCH_PROVIDER, body, timeout_s=FETCH_TIMEOUT_S
+        )
+    except RelayUnavailable as exc:
+        return JSONResponse(status_code=503, content={"ok": False, "error": str(exc)})
+    except RelayTimeout as exc:
+        return JSONResponse(status_code=504, content={"ok": False, "error": str(exc)})
+    return JSONResponse(status_code=200, content=payload)
+
+
 @router.post("/internal/relay/v1/{provider}/chat/completions")
 async def relay_shim(provider: str, request: Request) -> Any:
     """Bridge one blocking pipeline request onto the user's helper socket."""

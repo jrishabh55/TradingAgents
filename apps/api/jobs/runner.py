@@ -170,6 +170,13 @@ class JobRunner:
         user_id: str,
         resume: bool = False,
     ) -> None:
+        # Residential fetch proxy: when this user's helper is connected over
+        # the relay, social-data fetches in THIS thread route through their
+        # machine (thread-local — see integrations/fetch_proxy.py). Regardless
+        # of LLM provider: the proxy serves data fetches, not LLM calls.
+        from apps.api.integrations import fetch_proxy
+
+        proxy_token = fetch_proxy.activate_for_run(user_id)
         try:
             # Per-user lock: blocks only OTHER runs from the SAME user. Held
             # for the entire pipeline so the memory log read-modify-write is
@@ -180,6 +187,7 @@ class JobRunner:
             logger.exception("Runner crashed for run %s", run_id)
             self._fail(run_id, repr(exc), traceback.format_exc())
         finally:
+            fetch_proxy.deactivate(proxy_token)
             with self._tokens_lock:
                 self._cancel_tokens.pop(run_id, None)
             # The SqliteSaver context is opened in graph_factory and parked on the

@@ -19,6 +19,7 @@ import json
 import logging
 from urllib.request import Request, urlopen
 
+from .fetch_proxy import urlopen_maybe_proxied
 from .symbol_utils import crypto_base
 
 logger = logging.getLogger(__name__)
@@ -49,7 +50,10 @@ def fetch_stocktwits_messages(ticker: str, limit: int = 30, timeout: float = 10.
     url = _API.format(ticker=_stocktwits_symbol(ticker))
     req = Request(url, headers={"User-Agent": _UA, "Accept": "application/json"})
     try:
-        with urlopen(req, timeout=timeout) as resp:
+        # Rides the residential fetch proxy when the hosting layer provides
+        # one (fetch_proxy.py) — StockTwits' WAF blocks datacenter IPs.
+        # Passing our urlopen keeps test patches on it effective.
+        with urlopen_maybe_proxied(req, timeout=timeout, direct=urlopen) as resp:
             data = json.loads(resp.read())
     except (OSError, http.client.HTTPException, json.JSONDecodeError) as exc:
         # OSError covers URLError/TimeoutError/connection resets; HTTPException

@@ -173,7 +173,29 @@ The additions are separable functions, so re-applying is mechanical.
 **Migration plan:** Good upstream-PR candidate — it fixes their issue #862.
 Tests in ``tests/test_reddit_oauth.py``.
 
-### 10. `pyproject.toml`
+### 10. `tradingagents/dataflows/fetch_proxy.py` (new file) + `reddit.py` / `stocktwits.py` call sites
+
+**Change:** New module ``fetch_proxy.py`` — an optional residential fetch-proxy
+hook (``set_resolver`` + ``urlopen_maybe_proxied``; pass-through to ``urlopen``
+when no resolver is registered). In ``reddit.py`` (RSS + JSON fetches) and
+``stocktwits.py`` (stream fetch), the ``urlopen(req, timeout=…)`` calls became
+``urlopen_maybe_proxied(req, timeout=…, direct=urlopen)`` — behavior-identical
+outside the webapp, and ``direct=urlopen`` keeps test patches on the module's
+``urlopen`` effective.
+
+**Why:** Reddit/StockTwits 429/403 datacenter IPs. The web layer routes these
+fetches through the requesting user's own machine via the Drishti helper's
+relay (apps/api/integrations/fetch_proxy.py + apps/helper/fetcher.py, which
+enforces a hard host allowlist). The CLI and plain deployments never register
+a resolver and are unaffected.
+
+**Conflict risk:** Low-medium. The new file cannot conflict; the call-site
+edits are one line each in files upstream does maintain.
+
+**Migration plan:** Keep. Tests in ``tests/test_fetch_proxy.py`` and
+``tests/test_helper_fetcher.py``.
+
+### 11. `pyproject.toml`
 
 **Change:** Added `pythonpath = ["."]` under `[tool.pytest.ini_options]`.
 

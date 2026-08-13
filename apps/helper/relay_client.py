@@ -145,6 +145,14 @@ class RelayClient:
         import time
         import uuid
 
+        # Data-proxy frames: allowlisted public fetches from this machine's
+        # residential IP (see fetcher.py). Not an LLM call — short-circuit
+        # before the Chat Completions parsing below.
+        from apps.helper.fetcher import FETCH_PROVIDER, execute_fetch
+
+        if provider_name == FETCH_PROVIDER:
+            return await execute_fetch(body)
+
         provider = self._registry.get(provider_name)
         if provider is None:
             return _error(400, f"unknown provider {provider_name!r}", "invalid_request_error")
