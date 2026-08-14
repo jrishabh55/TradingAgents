@@ -4,6 +4,8 @@ import { Topbar } from '#/components/shared/Topbar'
 import { api, getAuthToken } from '#/lib/api'
 
 export const Route = createFileRoute('/scanners/$id/edit')({
+  /* Client-only: loader needs window.Clerk + same-origin fetch (see scanners.index). */
+  ssr: false,
   loader: async ({ params }) => {
     await getAuthToken()
     const scanners = await api.listScanners()

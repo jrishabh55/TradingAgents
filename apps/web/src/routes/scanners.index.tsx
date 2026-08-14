@@ -11,6 +11,9 @@ import { api, getAuthToken } from '#/lib/api'
 import type { ScanResult, ScannerSummary } from '#/lib/scanner-types'
 
 export const Route = createFileRoute('/scanners/')({
+  /* Client-only: the loader needs window.Clerk for the auth token, and a
+     relative fetch('/api/…') has no origin during SSR ("Invalid URL"). */
+  ssr: false,
   loader: async () => {
     await getAuthToken()
     return { scanners: await api.listScanners() }
