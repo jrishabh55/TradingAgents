@@ -1,9 +1,20 @@
+import { auth } from '@clerk/tanstack-react-start/server'
 import { createFileRoute } from '@tanstack/react-router'
 
 /* Catch-all proxy for /api/* so the browser stays same-origin. The Cloudflare
    Worker forwards every request (including SSE) to the FastAPI backend at
    WEBAPP1_API_BASE. SSE streams pass through unchanged because we hand the
-   upstream Response straight back — Workers will stream the body. */
+   upstream Response straight back — Workers will stream the body.
+
+   Auth: the session travels as a same-origin Clerk cookie now — no
+   client-side token juggling (see lib/api.ts). clerkMiddleware()
+   (src/start.ts) runs for every request through this route and parses that
+   cookie; auth() below reads the result. If the caller didn't already send
+   their own Authorization header (the legacy shared-bearer path,
+   VITE_API_TOKEN — see lib/api.ts), we mint a fresh Clerk session JWT and
+   attach it here, server-side, before forwarding upstream. FastAPI never
+   sees the cookie's absence or presence either way — it only ever sees a
+   Bearer token, exactly as before this migration. */
 
 const ALLOWED_METHODS = [
   'GET',
@@ -28,9 +39,22 @@ async function proxy(req: Request): Promise<Response> {
     base,
   )
 
+  /* Copy (don't mutate) the incoming headers — Request.headers may be
+     read-only depending on runtime. Only attach a Clerk token when the
+     caller hasn't already brought their own Authorization header, so the
+     legacy shared-bearer mode (VITE_API_TOKEN) keeps working untouched. */
+  const headers = new Headers(req.headers)
+  if (!headers.has('Authorization')) {
+    const { isAuthenticated, getToken } = await auth()
+    if (isAuthenticated) {
+      const token = await getToken()
+      if (token) headers.set('Authorization', `Bearer ${token}`)
+    }
+  }
+
   const init: RequestInit = {
     method: req.method,
-    headers: req.headers,
+    headers,
     redirect: 'manual',
   }
   if (req.method !== 'GET' && req.method !== 'HEAD') {
