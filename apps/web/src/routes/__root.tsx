@@ -1,15 +1,17 @@
 import {
+  ClerkLoaded,
   ClerkLoading,
   ClerkProvider,
   Show,
   SignIn,
   UserButton,
+  useClerk,
 } from '@clerk/react'
 import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 
 import { api, isNotActivated } from '../lib/api'
-import { clerk } from '../lib/clerk'
+import { markClerkReady } from '../lib/clerk'
 import appCss from '../styles.css?url'
 
 /* Vite exposes any env var prefixed with VITE_* to the browser bundle.
@@ -58,10 +60,6 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       </head>
       <body className="font-sans antialiased" suppressHydrationWarning>
         <ClerkProvider
-          /* The pre-constructed instance from lib/clerk.ts — the same one
-             getAuthToken() awaits, so loaders and components share auth
-             state by construction (no window.Clerk races). */
-          Clerk={clerk}
           publishableKey={PUBLISHABLE_KEY ?? ''}
           /* Without these, Clerk redirects post-sign-in to its hosted
              Account Portal at <app>.accounts.dev instead of back to
@@ -77,6 +75,12 @@ function RootDocument({ children }: { children: React.ReactNode }) {
           <ClerkLoading>
             <BootScreen />
           </ClerkLoading>
+          {/* Resolves the promise route loaders await in getAuthToken() —
+              Clerk's own loaded signal, bridged to non-React code. Renders
+              in both signed-in and signed-out states. */}
+          <ClerkLoaded>
+            <ClerkReadySignal />
+          </ClerkLoaded>
           {/* Clerk Core 3 replaced <SignedIn>/<SignedOut> with
               <Show when="..."> in v6. */}
           <Show when="signed-out">
@@ -99,6 +103,17 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 /** Full-page pulsing wordmark shown while Clerk hydrates and while the
  *  activation check is in flight — anywhere the app would otherwise be a
  *  black page. Reuses the agent-name-pulse keyframes from styles.css. */
+/* Mounted only once Clerk is loaded (inside <ClerkLoaded>), so useClerk()
+   returns the live instance; handing it to lib/clerk.ts unblocks any route
+   loader awaiting a token. useEffect keeps the resolve out of render. */
+function ClerkReadySignal() {
+  const clerkInstance = useClerk()
+  useEffect(() => {
+    markClerkReady(clerkInstance)
+  }, [clerkInstance])
+  return null
+}
+
 function BootScreen() {
   return (
     <main

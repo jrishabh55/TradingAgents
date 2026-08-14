@@ -26,7 +26,7 @@ const LEGACY_TOKEN: string | undefined = (
   import.meta as unknown as { env?: { VITE_API_TOKEN?: string } }
 ).env?.VITE_API_TOKEN
 
-import { clerk, clerkReady } from './clerk'
+import { clerkReady } from './clerk'
 
 /** Resolve a JWT for the current session, awaiting Clerk hydration if needed.
  *
@@ -41,9 +41,9 @@ import { clerk, clerkReady } from './clerk'
 export async function getAuthToken(): Promise<string | null> {
   if (typeof window === 'undefined') return LEGACY_TOKEN ?? null
   /* Loaders can call this before <ClerkProvider> has mounted; clerkReady()
-     resolves once the shared instance (see lib/clerk.ts) finishes loading. */
-  await clerkReady()
-  const token = (await clerk.session?.getToken()) ?? null
+     resolves when Clerk reports loaded (see lib/clerk.ts). */
+  const clerk = await clerkReady()
+  const token = (await clerk?.session?.getToken()) ?? null
   return token ?? LEGACY_TOKEN ?? null
 }
 
