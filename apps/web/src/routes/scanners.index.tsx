@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ResultsTable } from '#/components/scanner/ResultsTable'
 import { Topbar } from '#/components/shared/Topbar'
 import { Badge } from '#/components/ui/badge'
@@ -27,6 +27,13 @@ function ScannersPage() {
   const [running, setRunning] = useState<string | null>(null)
   const [result, setResult] = useState<{ name: string; data: ScanResult } | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const resultsRef = useRef<HTMLElement>(null)
+
+  /* Results render below all the scanner cards — off-screen on any full
+     gallery. Without this, a completed scan looks like nothing happened. */
+  useEffect(() => {
+    if (result) resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [result])
 
   async function run(s: ScannerSummary) {
     setRunning(s.id); setError(null)
@@ -94,7 +101,7 @@ function ScannersPage() {
         {section('My scanners', mine, true)}
         {error && <p className="text-sm text-red-500">{error}</p>}
         {result && (
-          <section className="space-y-2">
+          <section ref={resultsRef} className="scroll-mt-4 space-y-2">
             <h2 className="text-lg font-semibold">Results — {result.name}</h2>
             <ResultsTable result={result.data} />
           </section>
