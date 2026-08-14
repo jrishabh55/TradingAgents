@@ -1,4 +1,5 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
+import { ChevronDown } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   blankFilter, FilterPanel, filterFromNl, filterFromScanner, type ActiveFilter,
@@ -8,12 +9,14 @@ import { Topbar } from '#/components/shared/Topbar'
 import { Badge } from '#/components/ui/badge'
 import { Button } from '#/components/ui/button'
 import {
-  Command, CommandGroup, CommandInput, CommandItem, CommandList,
+  Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
 } from '#/components/ui/command'
+import { Input } from '#/components/ui/input'
+import { Popover, PopoverContent, PopoverTrigger } from '#/components/ui/popover'
 import { api } from '#/lib/api'
 import { fuzzyMatch } from '#/lib/fuzzy'
 import { withLiquidityFloor } from '#/lib/scanner-rows'
-import type { ScanResult, ScannerSummary } from '#/lib/scanner-types'
+import type { ScannerStatus, ScanResult, ScannerSummary } from '#/lib/scanner-types'
 
 export const Route = createFileRoute('/scanners/')({
   /* Client-only: a relative fetch('/api/…') has no origin during SSR
@@ -25,6 +28,29 @@ export const Route = createFileRoute('/scanners/')({
   component: ScannersPage,
 })
 
+/** DD Mon, e.g. "13 Aug" — null renders as "backfilling…" (no bars ingested
+ *  yet for that timeframe). */
+function fmtDay(ts: string | null): string {
+  if (!ts) return 'backfilling…'
+  return new Date(ts).toLocaleDateString(undefined, { day: '2-digit', month: 'short' })
+}
+
+/** HH:MM in the viewer's local time. */
+function fmtTime(ts: string | null): string {
+  if (!ts) return 'backfilling…'
+  return new Date(ts).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+}
+
+/** The freshest intraday bar across 5m/15m/1h — whichever has ingested
+ *  most recently, since not every deployment necessarily runs all three. */
+function latestIntraday(status: ScannerStatus): string | null {
+  const ts = (['5m', '15m', '1h'] as const)
+    .map((tf) => status.latest[tf])
+    .filter((v): v is string => v != null)
+    .sort()
+  return ts.at(-1) ?? null
+}
+
 function ScannersPage() {
   const { scanners } = Route.useLoaderData()
   const [items, setItems] = useState<ScannerSummary[]>(scanners)
@@ -34,6 +60,9 @@ function ScannersPage() {
   const [result, setResult] = useState<{ label: string; data: ScanResult } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [manageOpen, setManageOpen] = useState(false)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [pickerQuery, setPickerQuery] = useState('')
+  const [status, setStatus] = useState<ScannerStatus | null>(null)
   const resultsRef = useRef<HTMLElement>(null)
   // Guards against rapid successive selectScanner calls resolving out of
   // order (click scanner A, then B, before A's preview response lands) —
@@ -47,25 +76,44 @@ function ScannersPage() {
     if (result) resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }, [result])
 
+  function refreshStatus() {
+    api.scannerStatus().then(setStatus).catch(() => {
+      /* Data-freshness line is informational — leave it blank rather than
+         surface an error banner over the whole workbench. */
+    })
+  }
+
+  // On mount, and again after every successful run — the workbench's "last
+  // data refresh" line should track the most recent scan, not just the
+  // page load.
+  useEffect(() => { refreshStatus() }, [])
+
+  function applyResult(data: ScanResult, label: string) {
+    setResult({ label, data })
+    refreshStatus()
+  }
+
   // cmdk's built-in `shouldFilter` scores a query against each item's own
-  // `value` text — which would hide "New blank filter" the moment a typed
-  // query's letters aren't a subsequence of that fixed label. The footer
-  // actions must always be visible while there's a query, so filtering is
-  // done by hand and cmdk's own matching is turned off entirely.
-  const prebuilt = useMemo(
-    () => items.filter((s) => s.prebuilt && fuzzyMatch(query, `${s.name} ${s.description}`)),
-    [items, query],
+  // `value` text; the picker turns that off too and filters by hand so the
+  // same fuzzyMatch behavior applies to both name and description.
+  const prebuiltHits = useMemo(
+    () => items.filter((s) => s.prebuilt && fuzzyMatch(pickerQuery, `${s.name} ${s.description}`)),
+    [items, pickerQuery],
   )
-  const mine = useMemo(
-    () => items.filter((s) => !s.prebuilt && fuzzyMatch(query, `${s.name} ${s.description}`)),
-    [items, query],
+  const mineHits = useMemo(
+    () => items.filter((s) => !s.prebuilt && fuzzyMatch(pickerQuery, `${s.name} ${s.description}`)),
+    [items, pickerQuery],
   )
   const allMine = useMemo(() => items.filter((s) => !s.prebuilt), [items])
   const trimmedQuery = query.trim()
 
   async function selectScanner(s: ScannerSummary) {
-    setQuery(''); setError(null)
-    const filter = filterFromScanner(s)
+    setPickerOpen(false); setPickerQuery(''); setError(null)
+    // Collapsed from the moment the ActiveFilter is created — chips + name
+    // render immediately, with no expanded-then-collapsed flash while the
+    // auto-preview below is still in flight (see FilterPanel::ActiveFilter
+    // doc comment on `collapsed`).
+    const filter = filterFromScanner(s, { collapsed: true })
     setFilter(filter)
     const seq = ++selectSeqRef.current
     try {
@@ -74,10 +122,8 @@ function ScannersPage() {
       // selecting a saved scanner already matches what "Run" would show.
       const data = await api.previewScanner(withLiquidityFloor(s.definition, filter.liquidOnly))
       if (seq === selectSeqRef.current) {
-        setResult({ label: s.name, data })
-        // Selecting a saved scanner previews it right away — treat that
-        // like a successful Run and collapse the panel to its summary bar.
-        setFilter((prev) => (prev ? { ...prev, collapsed: true, matchCount: data.matches.length } : prev))
+        applyResult(data, s.name)
+        setFilter((prev) => (prev ? { ...prev, matchCount: data.matches.length } : prev))
       }
     } catch (e) {
       if (seq === selectSeqRef.current) setError(e instanceof Error ? e.message : String(e))
@@ -130,53 +176,77 @@ function ScannersPage() {
       <main className="mx-auto max-w-6xl space-y-6 p-4">
         <h1 className="text-2xl font-bold">Scanners</h1>
 
-        <Command className="rounded-lg border" shouldFilter={false}>
-          <CommandInput placeholder="Search scanners, or describe one to generate a filter…"
-            value={query} onValueChange={setQuery} />
-          <CommandList>
-            {!prebuilt.length && !mine.length && !trimmedQuery && (
-              <p className="py-6 text-center text-sm text-muted-foreground">
-                No scanners yet — describe one below or start blank.
-              </p>
-            )}
-            {!!prebuilt.length && (
-              <CommandGroup heading="Prebuilt">
-                {prebuilt.map((s) => (
-                  <CommandItem key={s.id} value={s.id} onSelect={() => selectScanner(s)}>
-                    <span>{s.name}</span>
-                    <Badge variant="secondary" className="ml-2">prebuilt</Badge>
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            )}
-            {!!mine.length && (
-              <CommandGroup heading="Mine">
-                {mine.map((s) => (
-                  <CommandItem key={s.id} value={s.id} onSelect={() => selectScanner(s)}>
-                    {s.name}
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            )}
-            {!!trimmedQuery && (
-              <CommandGroup heading="Or">
-                <CommandItem value={`__generate__${trimmedQuery}`} disabled={nlBusy}
-                  onSelect={generateFromQuery}>
-                  {nlBusy ? 'Generating…' : `Generate filter from: "${trimmedQuery}"`}
-                </CommandItem>
-                <CommandItem value="__blank__" onSelect={startBlank}>
-                  New blank filter
-                </CommandItem>
-              </CommandGroup>
-            )}
-          </CommandList>
-        </Command>
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Popover open={pickerOpen} onOpenChange={(o) => { setPickerOpen(o); if (!o) setPickerQuery('') }}>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-1.5">
+                  Load scanner…
+                  <ChevronDown className="size-3.5 opacity-60" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-80 p-0" align="start">
+                <Command shouldFilter={false}>
+                  <CommandInput placeholder="Search scanners…"
+                    value={pickerQuery} onValueChange={setPickerQuery} />
+                  <CommandList>
+                    {!prebuiltHits.length && !mineHits.length && (
+                      <CommandEmpty>No scanners match.</CommandEmpty>
+                    )}
+                    {!!prebuiltHits.length && (
+                      <CommandGroup heading="Prebuilt">
+                        {prebuiltHits.map((s) => (
+                          <CommandItem key={s.id} value={s.id} onSelect={() => selectScanner(s)}>
+                            <span>{s.name}</span>
+                            <Badge variant="secondary" className="ml-2">prebuilt</Badge>
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    )}
+                    {!!mineHits.length && (
+                      <CommandGroup heading="Mine">
+                        {mineHits.map((s) => (
+                          <CommandItem key={s.id} value={s.id} onSelect={() => selectScanner(s)}>
+                            {s.name}
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    )}
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border p-2">
+            <Input
+              className="min-w-64 flex-1"
+              placeholder="Describe a filter to generate, e.g. &quot;RSI above 60 and price above 200 SMA&quot;…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') generateFromQuery() }}
+            />
+            <Button size="sm" onClick={generateFromQuery} disabled={!trimmedQuery || nlBusy}>
+              {nlBusy ? 'Generating…' : 'Generate'}
+            </Button>
+            <Button size="sm" variant="outline" onClick={startBlank}>
+              New blank filter
+            </Button>
+          </div>
+
+          {status && (
+            <p className="es-mono px-1 text-xs text-muted-foreground">
+              Data: daily to {fmtDay(status.latest['1d'])} · intraday to{' '}
+              {fmtTime(latestIntraday(status))} (15-min delayed) · {status.universe} stocks
+            </p>
+          )}
+        </div>
 
         {error && <p className="text-sm text-red-500">{error}</p>}
 
         {filter && (
           <FilterPanel filter={filter} onChange={setFilter} onClear={clearFilter}
-            onSaved={handleSaved} onResult={(data, label) => setResult({ label, data })} />
+            onSaved={handleSaved} onResult={applyResult} />
         )}
 
         <section className="space-y-2">
@@ -216,6 +286,13 @@ function ScannersPage() {
             <ResultsTable result={result.data} />
           </section>
         )}
+
+        <footer className="mt-8 border-t pt-4 text-xs text-muted-foreground">
+          Drishti is provided &quot;as is&quot;, without warranty of any kind. Nothing here is
+          investment advice or a recommendation to buy or sell any security. Market data may be
+          delayed or inaccurate. You are solely responsible for your trading decisions — the
+          authors accept no liability for losses arising from use of this software.
+        </footer>
       </main>
     </div>
   )

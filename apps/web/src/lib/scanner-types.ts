@@ -56,3 +56,16 @@ export type ScanResult = {
   universe: number
   matches: ScanMatch[]
 }
+
+/** GET /scanners/status — data-freshness summary for the "Last data
+ *  refresh" line under the workbench. Any timeframe can be null while its
+ *  ingest hasn't landed a first bar yet. */
+export type ScannerStatus = {
+  universe: number
+  latest: {
+    '1d': string | null
+    '1h': string | null
+    '15m': string | null
+    '5m': string | null
+  }
+}

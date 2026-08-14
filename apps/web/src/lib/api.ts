@@ -11,7 +11,7 @@ import type {
   RunSummary,
   TickerHit,
 } from './types'
-import type { ScanGroup, ScanResult, ScannerSummary } from './scanner-types'
+import type { ScanGroup, ScannerStatus, ScanResult, ScannerSummary } from './scanner-types'
 
 /* Default to /api so the Cloudflare Worker (in prod) or Vite proxy (in dev)
    can route to the FastAPI backend. Override at build time with VITE_API_BASE
@@ -189,6 +189,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ prompt }),
     }),
+  scannerStatus: () => jsonFetch<ScannerStatus>('/scanners/status'),
 }
 
 export { API_BASE }

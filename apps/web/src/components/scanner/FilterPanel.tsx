@@ -36,12 +36,15 @@ export type ActiveFilter = {
   originalJson: string
   explanation: string | null
   /** Whether the panel is showing its slim applied-state summary bar
-   *  instead of the full editor. Set true ONLY by a successful Run (see
-   *  FilterPanel::run) or an equivalent auto-preview (selecting a saved
-   *  scanner) — never by a manual "collapse without running" action, since
-   *  that would let the chips (reflecting live edits) drift out of sync
-   *  with a stale matchCount badge. False whenever a fresh (not-yet-run)
-   *  filter is loaded, or the user hits Edit. */
+   *  instead of the full editor. Set true by a successful Run (see
+   *  FilterPanel::run), by selecting a scanner from the list (see
+   *  filterFromScanner's `collapsed` option and ScannersPage::selectScanner
+   *  — collapsed from the moment the ActiveFilter is created, so there's no
+   *  expanded-then-collapsed flash while its auto-preview is in flight) —
+   *  never by a manual "collapse without running" action, since that would
+   *  let the chips (reflecting live edits) drift out of sync with a stale
+   *  matchCount badge. False whenever a fresh, not-yet-run, not-yet-picked
+   *  filter is loaded (blank, NL-generated), or the user hits Edit. */
   collapsed: boolean
   /** Match count from the most recent successful run, shown as a badge on
    *  the collapsed summary bar. Null until a run (or an initial scanner
@@ -66,7 +69,14 @@ export function blankFilter(): ActiveFilter {
   }
 }
 
-export function filterFromScanner(s: ScannerSummary): ActiveFilter {
+/** @param opts.collapsed - Pass `true` when loading a scanner the user
+ *  picked from a list (see ScannersPage::selectScanner) so the panel renders
+ *  its slim summary bar (chips + name) immediately, with no expanded flash
+ *  before the auto-preview lands — the badge just fills in matchCount once
+ *  that resolves. Defaults to `false` for callers reloading a filter after
+ *  a save (see ScannersPage::handleSaved), which stays in the full editor
+ *  since the user was mid-edit. */
+export function filterFromScanner(s: ScannerSummary, opts?: { collapsed?: boolean }): ActiveFilter {
   return {
     origin: s.prebuilt
       ? { kind: 'prebuilt', name: s.name }
@@ -79,10 +89,7 @@ export function filterFromScanner(s: ScannerSummary): ActiveFilter {
     // `{ fn: 'MACD' }`, which gains an implicit `of: 'close'`) as dirty.
     originalJson: canonicalScanJson(s.definition),
     explanation: null,
-    // Selecting a saved scanner previews it immediately (see
-    // ScannersPage::selectScanner) — the caller flips this to true (and
-    // fills matchCount) once that preview resolves.
-    collapsed: false, matchCount: null, liquidOnly: true,
+    collapsed: opts?.collapsed ?? false, matchCount: null, liquidOnly: true,
   }
 }
 
