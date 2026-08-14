@@ -148,8 +148,14 @@
 
 * { box-sizing: border-box; }
 /* Full-viewport height so the agent view's flex column has a hard cap and
-   inner panels' `overflow: auto` actually engage. The landing page sets its
-   own scroll inside .es-art; the page itself never scrolls. */
+   inner panels' `overflow: auto` actually engage — `.es-art` sets its own
+   `height: 100%; overflow: hidden` and manages its own internal scroll
+   regions, so it doesn't need help from body here. Pages that aren't the
+   fixed-viewport agent view (e.g. /scanners) rely on the body scrolling
+   normally when their content is taller than the viewport — body must NOT
+   set `overflow: hidden`, since with an explicit height that value gets
+   propagated to the viewport and disables page scrolling everywhere, not
+   just on `.es-art` pages. */
 html, body { height: 100%; margin: 0; }
 html { background: #07090d; color-scheme: dark; }
 body {
@@ -158,7 +164,6 @@ body {
   background: #07090d;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-  overflow: hidden;
 }
 
 @layer base {
