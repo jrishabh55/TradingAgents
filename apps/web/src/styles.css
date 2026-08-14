@@ -98,16 +98,18 @@
   --radius: 10px;
 }
 
-/* The app is dark-only: pin shadcn's `.dark` tokens to our palette and
-   apply `.dark` on <html>. */
-.dark {
+/* shadcn tokens pinned to our palette. Applied at :root (not `.dark`) so the
+   aliases hold in BOTH themes — they're var() references, so flipping the
+   underlying es tokens (html.light below) re-themes every shadcn component
+   for free. */
+:root, .dark {
   --background: var(--bg-0);
   --foreground: var(--text-1);
   --card: var(--bg-1);
   --card-foreground: var(--text-1);
   --popover: var(--bg-2);
   --popover-foreground: var(--text-1);
-  --primary: #4f7cff;
+  --primary: var(--accent);
   --primary-foreground: #ffffff;
   --secondary: var(--bg-3);
   --secondary-foreground: var(--text-1);
@@ -117,8 +119,55 @@
   --destructive: var(--err);
   --border: var(--line-1);
   --input: var(--line-2);
-  --ring: rgba(79, 124, 255, 0.35);
+  --ring: var(--accent-line);
 }
+
+/* ---------- Light theme ----------
+   Toggled by swapping `dark` → `light` on <html> (see Topbar's ThemeToggle +
+   the no-FOUC init script in __root.tsx). Only the underlying es tokens are
+   overridden — every es-* class and every shadcn alias follows via var().
+   The terminal palette (--term-*) deliberately stays dark in both themes. */
+html.light {
+  color-scheme: light;
+
+  --bg-0: #f4f5f8;
+  --bg-1: #ffffff;
+  --bg-2: #eef0f4;
+  --bg-3: #e4e7ee;
+  --bg-4: #d8dce6;
+  --line-1: #e0e4ec;
+  --line-2: #cbd2de;
+  --line-3: #aab3c5;
+
+  --text-1: #171b24;
+  --text-2: #424a5c;
+  --text-3: #68718a;
+  --text-4: #98a0b3;
+
+  /* Accent darkened for contrast on white; `hi` (emphasized text/hover)
+     darkens further rather than lightening. */
+  --accent: #3560e0;
+  --accent-hi: #2648b8;
+  --accent-lo: #5b7fe8;
+  --accent-bg: rgba(53, 96, 224, 0.1);
+  --accent-line: rgba(53, 96, 224, 0.35);
+
+  /* Status colors deepened so text passes contrast on light surfaces. */
+  --ok: #0d9c68;
+  --ok-bg: rgba(13, 156, 104, 0.12);
+  --run: #a06c0a;
+  --run-bg: rgba(183, 121, 31, 0.14);
+  --err: #d03131;
+  --err-bg: rgba(208, 49, 49, 0.1);
+  --info: #0b7fad;
+  --info-bg: rgba(11, 127, 173, 0.12);
+  --magenta: #a934d8;
+
+  --shadow-1: 0 1px 0 rgba(255, 255, 255, 0.6) inset, 0 1px 2px rgba(20, 26, 45, 0.08);
+  --shadow-2: 0 8px 24px rgba(20, 26, 45, 0.14);
+}
+/* Hardcoded-orange warn pill: darken for light surfaces. */
+html.light .es-pill.warn { color: #b4540b; }
 
 @theme inline {
   --font-sans: var(--font-sans);
@@ -157,11 +206,13 @@
    propagated to the viewport and disables page scrolling everywhere, not
    just on `.es-art` pages. */
 html, body { height: 100%; margin: 0; }
-html { background: #07090d; color-scheme: dark; }
+html { background: var(--page-bg, #07090d); color-scheme: dark; }
+:root { --page-bg: #07090d; }
+html.light { --page-bg: #e9ebf1; }
 body {
   font-family: var(--font-sans);
   color: var(--text-1);
-  background: #07090d;
+  background: var(--page-bg, #07090d);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }

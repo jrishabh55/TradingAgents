@@ -38,9 +38,19 @@ export const Route = createRootRoute({
       { charSet: 'utf-8' },
       { name: 'viewport', content: 'width=device-width, initial-scale=1' },
       { title: 'Drishti' },
-      { name: 'color-scheme', content: 'dark' },
+      { name: 'color-scheme', content: 'dark light' },
     ],
     links: [{ rel: 'stylesheet', href: appCss }],
+    scripts: [
+      {
+        /* No-FOUC theme init: runs before paint, before hydration. The SSR
+           markup ships class="dark"; a stored "light" preference swaps the
+           class here so the first paint is already the right theme.
+           suppressHydrationWarning on <html> absorbs the class mismatch. */
+        children:
+          "try{if(localStorage.getItem('drishti-theme')==='light'){var d=document.documentElement;d.classList.remove('dark');d.classList.add('light');}}catch(e){}",
+      },
+    ],
   }),
   shellComponent: RootDocument,
 })

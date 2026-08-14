@@ -1,8 +1,44 @@
 import { UserButton } from '@clerk/tanstack-react-start'
 import { Link } from '@tanstack/react-router'
+import { Moon, Sun } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import { api } from '../../lib/api'
+
+/** Dark/light switch. The source of truth is the class on <html> (set before
+ *  hydration by the init script in __root.tsx); this button just flips it and
+ *  persists the choice. State exists only so the icon re-renders. */
+function ThemeToggle() {
+  const [light, setLight] = useState(false)
+
+  useEffect(() => {
+    setLight(document.documentElement.classList.contains('light'))
+  }, [])
+
+  function toggle() {
+    const el = document.documentElement
+    const next = !el.classList.contains('light')
+    el.classList.toggle('light', next)
+    el.classList.toggle('dark', !next)
+    try {
+      localStorage.setItem('drishti-theme', next ? 'light' : 'dark')
+    } catch {
+      /* private mode — theme just won't persist */
+    }
+    setLight(next)
+  }
+
+  return (
+    <button
+      className="es-btn ghost sm"
+      onClick={toggle}
+      title={light ? 'Switch to dark theme' : 'Switch to light theme'}
+      aria-label="Toggle theme"
+    >
+      {light ? <Moon size={14} /> : <Sun size={14} />}
+    </button>
+  )
+}
 
 /** Remaining run credits (Clerk privateMetadata, served by /api/me).
  *
@@ -176,6 +212,7 @@ export function Topbar({
         New analysis
       </Link>
       <CreditsPill />
+      <ThemeToggle />
       {/* Sign-out / account menu lives at the end of the topbar so it
           owns its own layout slot — no fixed-position overlay fighting
           with page buttons. */}

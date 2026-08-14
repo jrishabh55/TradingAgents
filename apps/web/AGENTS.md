@@ -61,8 +61,11 @@ Claude Design handoff bundle). Key files:
   `.es-btn`, `.es-topbar`, `.es-statusbar`, `.es-report`, `.chip`, `.adv-row`,
   `.depth-card`, `.check-card`, `.fld-input`, `.seg`, `.switch`. shadcn
   primitive tokens are aliased onto the same palette.
-- The app is **dark-only** — `<html class="dark">` is hardcoded in
-  `__root.tsx`. There is no theme toggle.
+- **Two themes, dark default.** The es tokens are defined dark at `:root`
+  and overridden under `html.light` in `styles.css`; the Topbar's ThemeToggle
+  swaps the `<html>` class and persists to `localStorage('drishti-theme')`,
+  with a no-FOUC init script in `__root.tsx`'s head. New colors MUST be
+  tokens (or get an `html.light` override) — never hardcode a dark-only hex.
 - Type stack: **Inter** for UI, **JetBrains Mono** for ticker / timestamps /
   terminal-flavoured bits.
 - Single accent: **electric blue `#4f7cff`**.
@@ -248,9 +251,9 @@ heartbeat keeps SSE alive.
 - **`routeTree.gen.ts` is generated** by the router plugin on first
   `vite dev` / `vite build`. Don't hand-edit it; deleted commits will
   regenerate. It's gitignored by the scaffold.
-- **The app is dark-only.** Don't add a theme toggle without first
-  confirming with the user — the EasyStock design system has no light
-  variant defined.
+- **Theming is token-driven.** Dark is the default; `html.light` overrides
+  the es tokens (user-approved, Aug 2026). Hardcoded hex values in
+  components/CSS will not re-theme — use the tokens.
 - **Don't change `webapp/`.** That's webapp1, the fork's existing
   upstream-mergeable surface. Cross-cutting backend work belongs in
   `webapp/` (Python); webapp2 stays read-only on its API contract.
