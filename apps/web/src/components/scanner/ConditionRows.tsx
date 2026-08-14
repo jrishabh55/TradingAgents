@@ -96,7 +96,7 @@ export function ConditionRows({ state, onChange }: {
                 <SelectItem value="OR">OR</SelectItem>
               </SelectContent>
             </Select>
-            <span className="es-team-label text-[9px] opacity-40">Group {gi + 1}</span>
+            <span className="es-team-label text-[10px]">Group {gi + 1}</span>
             {state.groups.length > 1 && (
               <Button size="sm" variant="ghost" className="ml-auto h-6 px-2 text-xs" onClick={() => {
                 const next = structuredClone(state)
@@ -115,7 +115,7 @@ export function ConditionRows({ state, onChange }: {
           </div>
 
           {g.rows.map((r, ri) => (
-            <div key={ri} className="flex flex-wrap items-center gap-1.5 rounded bg-card/70 p-1.5">
+            <div key={ri} className="flex flex-wrap items-center gap-1.5 rounded bg-card/70 p-2">
               <Select value={r.timeframe} onValueChange={(timeframe) =>
                 updateRow(gi, ri, { ...r, timeframe: timeframe as Row['timeframe'] })}>
                 <SelectTrigger className="w-16 shrink-0 text-xs"><SelectValue /></SelectTrigger>

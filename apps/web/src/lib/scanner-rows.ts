@@ -127,7 +127,11 @@ function operandLabel(o: SimpleOperand): string {
   // common case ("SMA(200)") short — see describeRow's doc comment.
   const args = [o.of !== 'close' ? o.of : null, o.period !== undefined ? String(o.period) : null]
     .filter((a): a is string => a !== null)
-  const base = `${o.fn}(${args.join(',')})`
+  let base = args.length ? `${o.fn}(${args.join(',')})` : o.fn
+  // Multi-line indicators (MACD line vs. signal, STOCH %K vs. %D) share one
+  // `fn` but pick out a sub-series via `component` — without this, both
+  // read identically in the chip.
+  if (o.component) base += `.${o.component}`
   return o.mult !== undefined && o.mult !== 1 ? `${o.mult}×${base}` : base
 }
 

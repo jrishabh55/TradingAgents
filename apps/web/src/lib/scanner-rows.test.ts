@@ -127,6 +127,15 @@ describe('describeRow', () => {
     expect(describeRow(row)).toBe('volume > 2×SMA(volume,20) · 15m')
   })
 
+  it('appends the component for multi-line indicators (MACD signal)', () => {
+    const row: Row = {
+      timeframe: '1d', left: { kind: 'fn', fn: 'MACD', of: 'close', component: 'signal' }, op: '>',
+      right: { kind: 'const', value: 0 },
+    }
+    expect(describeRow(row)).toContain('.signal')
+    expect(describeRow(row)).toBe('MACD.signal > 0 · 1d')
+  })
+
   it('appends a for_n_bars suffix', () => {
     const row: Row = {
       timeframe: '1d', left: { kind: 'field', field: 'close' }, op: '>',

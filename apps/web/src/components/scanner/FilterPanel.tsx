@@ -1,4 +1,4 @@
-import { ChevronUp, Pencil, X } from 'lucide-react'
+import { Pencil, X } from 'lucide-react'
 import { useState } from 'react'
 import { ConditionRows } from '#/components/scanner/ConditionRows'
 import { Button } from '#/components/ui/button'
@@ -34,9 +34,12 @@ export type ActiveFilter = {
   originalJson: string
   explanation: string | null
   /** Whether the panel is showing its slim applied-state summary bar
-   *  instead of the full editor. Set true by a successful Run (see
-   *  FilterPanel::run) or an Edit→Collapse round trip; false whenever a
-   *  fresh (not-yet-run) filter is loaded. */
+   *  instead of the full editor. Set true ONLY by a successful Run (see
+   *  FilterPanel::run) or an equivalent auto-preview (selecting a saved
+   *  scanner) — never by a manual "collapse without running" action, since
+   *  that would let the chips (reflecting live edits) drift out of sync
+   *  with a stale matchCount badge. False whenever a fresh (not-yet-run)
+   *  filter is loaded, or the user hits Edit. */
   collapsed: boolean
   /** Match count from the most recent successful run, shown as a badge on
    *  the collapsed summary bar. Null until a run (or an initial scanner
@@ -187,9 +190,6 @@ export function FilterPanel({ filter, onChange, onClear, onSaved, onResult }: {
               </Button>
               <Button size="sm" onClick={() => setSaveOpen(true)} disabled={busy}>Save</Button>
               <Button size="sm" variant="ghost" onClick={onClear}>Clear</Button>
-              <Button size="sm" variant="ghost" onClick={() => onChange({ ...filter, collapsed: true })}>
-                <ChevronUp className="size-3.5" /> Collapse
-              </Button>
             </div>
           </div>
 
