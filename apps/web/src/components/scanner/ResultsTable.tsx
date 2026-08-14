@@ -44,20 +44,26 @@ export function ResultsTable({ result }: { result: ScanResult }) {
     else { setSortKey(key); setDesc(true) }
   }
 
+  // Numeric columns get right-aligned tabular-nums mono rendering; text
+  // columns (symbol/name/sector) stay left-aligned.
+  const NUMERIC_BASE = new Set(['close', 'change_pct', 'volume', 'rvol'])
+
   return (
     <div className="space-y-2">
-      <p className="text-sm text-muted-foreground">
+      <p className="es-mono text-xs text-muted-foreground">
         {result.matches.length} of {result.universe} stocks · data as of{' '}
         {result.data_as_of ? new Date(result.data_as_of).toLocaleString() : '—'} (delayed)
       </p>
-      <div className="overflow-x-auto rounded-md border">
+      <div className="max-h-[560px] overflow-auto rounded-md border">
         <Table>
           <TableHeader>
             <TableRow>
               {[...BASE_COLS.map((c) => ({ key: String(c.key), label: c.label })),
                 ...valueCols.map((k) => ({ key: k, label: k }))].map((c) => (
                 <TableHead key={c.key} onClick={() => onSort(c.key)}
-                  className="cursor-pointer select-none whitespace-nowrap">
+                  className={`es-team-label sticky top-0 z-10 cursor-pointer select-none whitespace-nowrap bg-card ${
+                    NUMERIC_BASE.has(c.key) || !BASE_COLS.some((b) => String(b.key) === c.key)
+                      ? 'text-right' : 'text-left'}`}>
                   {c.label}{sortKey === c.key ? (desc ? ' ↓' : ' ↑') : ''}
                 </TableHead>
               ))}
@@ -67,18 +73,26 @@ export function ResultsTable({ result }: { result: ScanResult }) {
             {rows.map((m) => (
               <TableRow key={m.symbol} className="cursor-pointer"
                 onClick={() => setChartSymbol(m.symbol)}>
-                <TableCell className="font-medium">{m.symbol}</TableCell>
-                <TableCell className="max-w-48 truncate">{m.name}</TableCell>
-                <TableCell>{m.sector ?? '—'}</TableCell>
-                <TableCell>{m.close?.toLocaleString() ?? '—'}</TableCell>
-                <TableCell className={m.change_pct != null && m.change_pct < 0
-                  ? 'text-red-500' : 'text-emerald-500'}>
+                <TableCell className="es-mono font-medium text-primary">{m.symbol}</TableCell>
+                <TableCell className="max-w-48 truncate text-muted-foreground">{m.name}</TableCell>
+                <TableCell className="text-muted-foreground">{m.sector ?? '—'}</TableCell>
+                <TableCell className="es-mono text-right tabular-nums">
+                  {m.close?.toLocaleString() ?? '—'}
+                </TableCell>
+                <TableCell className={`es-mono text-right font-medium tabular-nums ${
+                  m.change_pct != null && m.change_pct < 0 ? 'text-red-500' : 'text-emerald-500'}`}>
                   {m.change_pct != null ? `${m.change_pct.toFixed(2)}%` : '—'}
                 </TableCell>
-                <TableCell>{m.volume?.toLocaleString() ?? '—'}</TableCell>
-                <TableCell>{m.rvol?.toFixed(2) ?? '—'}</TableCell>
+                <TableCell className="es-mono text-right tabular-nums text-muted-foreground">
+                  {m.volume?.toLocaleString() ?? '—'}
+                </TableCell>
+                <TableCell className="es-mono text-right tabular-nums">
+                  {m.rvol?.toFixed(2) ?? '—'}
+                </TableCell>
                 {valueCols.map((k) => (
-                  <TableCell key={k}>{m.values[k]?.toFixed(2) ?? '—'}</TableCell>
+                  <TableCell key={k} className="es-mono text-right tabular-nums">
+                    {m.values[k]?.toFixed(2) ?? '—'}
+                  </TableCell>
                 ))}
               </TableRow>
             ))}

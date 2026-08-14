@@ -69,7 +69,12 @@ function ScannersPage() {
     const seq = ++selectSeqRef.current
     try {
       const data = await api.previewScanner(s.definition)
-      if (seq === selectSeqRef.current) setResult({ label: s.name, data })
+      if (seq === selectSeqRef.current) {
+        setResult({ label: s.name, data })
+        // Selecting a saved scanner previews it right away — treat that
+        // like a successful Run and collapse the panel to its summary bar.
+        setFilter((prev) => (prev ? { ...prev, collapsed: true, matchCount: data.matches.length } : prev))
+      }
     } catch (e) {
       if (seq === selectSeqRef.current) setError(e instanceof Error ? e.message : String(e))
     }
@@ -197,8 +202,13 @@ function ScannersPage() {
         </section>
 
         {result && (
-          <section ref={resultsRef} className="scroll-mt-4 space-y-2">
-            <h2 className="text-lg font-semibold">Results — {result.label}</h2>
+          <section ref={resultsRef} className="scroll-mt-4 space-y-3">
+            <div className="space-y-0.5">
+              <div className="es-team-label">Results</div>
+              <h2 className="text-lg font-semibold">
+                {result.label} ({result.data.matches.length})
+              </h2>
+            </div>
             <ResultsTable result={result.data} />
           </section>
         )}

@@ -644,6 +644,21 @@ body {
 .chip.ghost { background: transparent; border-color: transparent; color: var(--text-3); }
 .chip.ghost:hover { background: var(--bg-2); color: var(--text-1); }
 
+/* ---------- Condition chip (scanner filter panel collapsed bar) ---------- */
+/* Compact rectangular mono chip summarizing one scan condition — distinct
+   from .chip (pill-shaped, used on the landing ticker bar). */
+.es-chip {
+  display: inline-flex; align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--bg-2);
+  border: 1px solid var(--line-1);
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
 /* ---------- Advanced disclosure ---------- */
 .cfg-row {
   display: grid;

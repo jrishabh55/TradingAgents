@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { astToRows, canonicalScanJson, emptyRow, rowsToAst } from './scanner-rows'
+import {
+  astToRows, canonicalScanJson, describeRow, emptyRow, rowsToAst, type Row,
+} from './scanner-rows'
 import type { ScanGroup } from './scanner-types'
 
 const SIMPLE: ScanGroup = {
@@ -97,5 +99,39 @@ describe('canonicalScanJson', () => {
     const def: ScanGroup = { logic: 'AND', children: [{ timeframe: '1d', left: { pattern: 'doji' } }] }
     expect(astToRows(def)).toBeNull()
     expect(canonicalScanJson(def)).toBe(JSON.stringify(def))
+  })
+})
+
+describe('describeRow', () => {
+  it('labels a field-vs-fn condition, omitting the default `of: close`', () => {
+    const row: Row = {
+      timeframe: '1d', left: { kind: 'field', field: 'close' }, op: '>',
+      right: { kind: 'fn', fn: 'SMA', of: 'close', period: 200 },
+    }
+    expect(describeRow(row)).toBe('close > SMA(200) · 1d')
+  })
+
+  it('labels a fn-vs-const condition', () => {
+    const row: Row = {
+      timeframe: '1d', left: { kind: 'fn', fn: 'RSI', of: 'close', period: 14 }, op: '>',
+      right: { kind: 'const', value: 60 },
+    }
+    expect(describeRow(row)).toBe('RSI(14) > 60 · 1d')
+  })
+
+  it('labels a fn operand with a multiplier, keeping a non-close `of`', () => {
+    const row: Row = {
+      timeframe: '15m', left: { kind: 'field', field: 'volume' }, op: '>',
+      right: { kind: 'fn', fn: 'SMA', of: 'volume', period: 20, mult: 2 },
+    }
+    expect(describeRow(row)).toBe('volume > 2×SMA(volume,20) · 15m')
+  })
+
+  it('appends a for_n_bars suffix', () => {
+    const row: Row = {
+      timeframe: '1d', left: { kind: 'field', field: 'close' }, op: '>',
+      right: { kind: 'const', value: 100 }, forN: 3,
+    }
+    expect(describeRow(row)).toBe('close > 100 for 3b · 1d')
   })
 })

@@ -115,6 +115,32 @@ export function canonicalScanJson(def: ScanGroup): string {
   return JSON.stringify(rows ? rowsToAst(rows) : def)
 }
 
+const OP_LABELS: Record<string, string> = {
+  '>': '>', '<': '<', '>=': '>=', '<=': '<=', '==': '=',
+  crosses_above: 'crosses above', crosses_below: 'crosses below',
+}
+
+function operandLabel(o: SimpleOperand): string {
+  if (o.kind === 'const') return String(o.value)
+  if (o.kind === 'field') return o.field
+  // `of` is only shown when it isn't the 'close' default, keeping the
+  // common case ("SMA(200)") short — see describeRow's doc comment.
+  const args = [o.of !== 'close' ? o.of : null, o.period !== undefined ? String(o.period) : null]
+    .filter((a): a is string => a !== null)
+  const base = `${o.fn}(${args.join(',')})`
+  return o.mult !== undefined && o.mult !== 1 ? `${o.mult}×${base}` : base
+}
+
+/** Human label for a condition row, used as an inline chip in the filter
+ *  panel's collapsed summary bar, e.g. "close > SMA(200) · 1d" or
+ *  "volume > 2×SMA(volume,20) · 15m". A `for_n_bars` count renders as a
+ *  trailing "for Nb". */
+export function describeRow(row: Row): string {
+  const op = OP_LABELS[row.op] ?? row.op
+  const forSuffix = row.forN ? ` for ${row.forN}b` : ''
+  return `${operandLabel(row.left)} ${op} ${operandLabel(row.right)}${forSuffix} · ${row.timeframe}`
+}
+
 export function astToRows(def: ScanGroup): BuilderState | null {
   const groups: BuilderState['groups'] = []
   const top: Row[] = []
