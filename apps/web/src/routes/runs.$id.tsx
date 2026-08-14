@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
-import { api, getAuthToken } from '#/lib/api'
+import { api } from '#/lib/api'
 import type { RunDetail } from '#/lib/types'
 import { AgentViewLive } from '#/components/flow/AgentViewLive'
 import { ReadingMode } from '#/components/flow/ReadingMode'
@@ -8,10 +8,6 @@ import { Topbar } from '#/components/shared/Topbar'
 
 export const Route = createFileRoute('/runs/$id')({
   loader: async ({ params }) => {
-    /* Loaders run outside the React tree, so we can't gate this with
-       <SignedIn>. Awaiting getAuthToken() forces Clerk to hydrate before
-       the fetch goes out, which avoids a guaranteed 401 on first paint. */
-    await getAuthToken()
     return { initial: await api.getRun(params.id) }
   },
   component: RunPage,

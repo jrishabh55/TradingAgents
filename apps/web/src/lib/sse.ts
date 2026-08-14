@@ -23,18 +23,11 @@ export function useRunEvents(runId: string | undefined): SseState {
     if (!runId) return
     setState({ events: [], status: 'connecting', error: null })
 
-    /* eventsUrl is async because it pulls the Clerk JWT to append as ?token=
-       — native EventSource can't send Authorization headers, so this is the
-       only way to authenticate the SSE stream. We track `cancelled` so a
-       fast unmount before the URL resolves doesn't open a stray socket. */
-    let cancelled = false
-    let es: EventSource | null = null
-    void api.eventsUrl(runId).then((url) => {
-      if (cancelled) return
-      es = new EventSource(url)
-      esRef.current = es
-      attachHandlers(es)
-    })
+    /* Same-origin GET — the browser attaches the Clerk session cookie
+       automatically, so no token wiring is needed here. */
+    const es = new EventSource(api.eventsUrl(runId))
+    esRef.current = es
+    attachHandlers(es)
 
     function attachHandlers(source: EventSource) {
       source.onopen = () =>
@@ -93,7 +86,6 @@ export function useRunEvents(runId: string | undefined): SseState {
     }
 
     return () => {
-      cancelled = true
       const current = esRef.current as
         | (EventSource & { _cleanup?: () => void })
         | null

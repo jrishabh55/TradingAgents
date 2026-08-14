@@ -1,23 +1,22 @@
 import {
-  ClerkLoaded,
   ClerkLoading,
   ClerkProvider,
   Show,
   SignIn,
   UserButton,
-  useClerk,
-} from '@clerk/react'
+} from '@clerk/tanstack-react-start'
 import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 
 import { api, isNotActivated } from '../lib/api'
-import { markClerkReady } from '../lib/clerk'
 import appCss from '../styles.css?url'
 
 /* Vite exposes any env var prefixed with VITE_* to the browser bundle.
    The publishable key is safe to ship — it identifies the Clerk app, not a
-   credential. The secret key (if Clerk hands you one) stays out of this
-   project entirely; the FastAPI backend verifies JWTs via public JWKs. */
+   credential. This is just a dev-time sanity check now — the SDK itself
+   reads the same var (with a CLERK_PUBLISHABLE_KEY fallback) server-side via
+   clerkMiddleware() in src/start.ts and threads it down through
+   <ClerkProvider>, so it's no longer passed as an explicit prop here. */
 const PUBLISHABLE_KEY = (
   import.meta as unknown as { env?: { VITE_CLERK_PUBLISHABLE_KEY?: string } }
 ).env?.VITE_CLERK_PUBLISHABLE_KEY
@@ -60,7 +59,6 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       </head>
       <body className="font-sans antialiased" suppressHydrationWarning>
         <ClerkProvider
-          publishableKey={PUBLISHABLE_KEY ?? ''}
           /* Without these, Clerk redirects post-sign-in to its hosted
              Account Portal at <app>.accounts.dev instead of back to
              your localhost. fallback variants only redirect when no
@@ -75,12 +73,6 @@ function RootDocument({ children }: { children: React.ReactNode }) {
           <ClerkLoading>
             <BootScreen />
           </ClerkLoading>
-          {/* Resolves the promise route loaders await in getAuthToken() —
-              Clerk's own loaded signal, bridged to non-React code. Renders
-              in both signed-in and signed-out states. */}
-          <ClerkLoaded>
-            <ClerkReadySignal />
-          </ClerkLoaded>
           {/* Clerk Core 3 replaced <SignedIn>/<SignedOut> with
               <Show when="..."> in v6. */}
           <Show when="signed-out">
@@ -103,17 +95,6 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 /** Full-page pulsing wordmark shown while Clerk hydrates and while the
  *  activation check is in flight — anywhere the app would otherwise be a
  *  black page. Reuses the agent-name-pulse keyframes from styles.css. */
-/* Mounted only once Clerk is loaded (inside <ClerkLoaded>), so useClerk()
-   returns the live instance; handing it to lib/clerk.ts unblocks any route
-   loader awaiting a token. useEffect keeps the resolve out of render. */
-function ClerkReadySignal() {
-  const clerkInstance = useClerk()
-  useEffect(() => {
-    markClerkReady(clerkInstance)
-  }, [clerkInstance])
-  return null
-}
-
 function BootScreen() {
   return (
     <main

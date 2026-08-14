@@ -21,35 +21,18 @@ const API_BASE: string =
     ?.VITE_API_BASE ?? '/api'
 
 /* Legacy shared bearer — only used when the backend is in WEBAPP_AUTH_TOKEN
-   mode. Clerk JWTs (when configured) take precedence and override this. */
+   mode. The primary auth path is a same-origin Clerk session cookie: the
+   browser sends it automatically on every /api/* request (no client-side
+   token wiring needed), and the /api/$ server route
+   (apps/web/src/routes/api.$.tsx) attaches a fresh Clerk JWT server-side
+   before forwarding upstream — unless this legacy bearer is already present,
+   in which case the proxy leaves it alone. */
 const LEGACY_TOKEN: string | undefined = (
   import.meta as unknown as { env?: { VITE_API_TOKEN?: string } }
 ).env?.VITE_API_TOKEN
 
-import { clerkReady } from './clerk'
-
-/** Resolve a JWT for the current session, awaiting Clerk hydration if needed.
- *
- *  Returns:
- *    - the Clerk session JWT when a user is signed in
- *    - the legacy `VITE_API_TOKEN` when no Clerk is configured
- *    - null when neither is available (request goes out unauthed; the
- *      backend may be in open mode, or the request will get HTTP 401)
- *
- *  Safe to call from anywhere — React component, router loader, plain async.
- */
-export async function getAuthToken(): Promise<string | null> {
-  if (typeof window === 'undefined') return LEGACY_TOKEN ?? null
-  /* Loaders can call this before <ClerkProvider> has mounted; clerkReady()
-     resolves when Clerk reports loaded (see lib/clerk.ts). */
-  const clerk = await clerkReady()
-  const token = (await clerk?.session?.getToken()) ?? null
-  return token ?? LEGACY_TOKEN ?? null
-}
-
-async function authHeaders(): Promise<Record<string, string>> {
-  const token = await getAuthToken()
-  return token ? { Authorization: `Bearer ${token}` } : {}
+function authHeaders(): Record<string, string> {
+  return LEGACY_TOKEN ? { Authorization: `Bearer ${LEGACY_TOKEN}` } : {}
 }
 
 /** An HTTP error that keeps the parsed body, so callers can act on it.
@@ -99,7 +82,7 @@ async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
     headers: {
       'Content-Type': 'application/json',
-      ...(await authHeaders()),
+      ...authHeaders(),
       ...(init?.headers ?? {}),
     },
   })
@@ -173,14 +156,11 @@ export const api = {
     if (params.r_multiple != null) q.set('r_multiple', String(params.r_multiple))
     return jsonFetch<LevelsResponse>(`/runs/${id}/levels?${q}`)
   },
-  /* SSE: native EventSource can't send headers, so the JWT is appended as
-     a query param. The backend reads ?token= when Authorization is absent
-     (apps/api/auth.py::_extract_bearer). The token is fresh per call. */
-  eventsUrl: async (id: string): Promise<string> => {
-    const base = `${API_BASE}/runs/${id}/events`
-    const token = await getAuthToken()
-    return token ? `${base}?token=${encodeURIComponent(token)}` : base
-  },
+  /* SSE: EventSource is a same-origin GET, so the browser sends the Clerk
+     session cookie automatically — no client-side token needed. The /api/$
+     proxy attaches the Bearer token server-side before forwarding to
+     FastAPI, same as every other request. */
+  eventsUrl: (id: string): string => `${API_BASE}/runs/${id}/events`,
   listScanners: () => jsonFetch<ScannerSummary[]>('/scanners'),
   createScanner: (body: { name: string; description?: string; definition: ScanGroup }) =>
     jsonFetch<ScannerSummary>('/scanners', {

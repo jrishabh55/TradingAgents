@@ -1,13 +1,12 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { ScannerBuilder } from '#/components/scanner/ScannerBuilder'
 import { Topbar } from '#/components/shared/Topbar'
-import { api, getAuthToken } from '#/lib/api'
+import { api } from '#/lib/api'
 
 export const Route = createFileRoute('/scanners/$id/edit')({
-  /* Client-only: loader needs window.Clerk + same-origin fetch (see scanners.index). */
+  /* Client-only: same-origin fetch during SSR has no origin (see scanners.index). */
   ssr: false,
   loader: async ({ params }) => {
-    await getAuthToken()
     const scanners = await api.listScanners()
     const scanner = scanners.find((s) => s.id === params.id)
     if (!scanner || scanner.prebuilt) throw new Error('scanner not found')

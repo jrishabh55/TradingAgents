@@ -10,17 +10,16 @@ import { Button } from '#/components/ui/button'
 import {
   Command, CommandGroup, CommandInput, CommandItem, CommandList,
 } from '#/components/ui/command'
-import { api, getAuthToken } from '#/lib/api'
+import { api } from '#/lib/api'
 import { fuzzyMatch } from '#/lib/fuzzy'
 import { withLiquidityFloor } from '#/lib/scanner-rows'
 import type { ScanResult, ScannerSummary } from '#/lib/scanner-types'
 
 export const Route = createFileRoute('/scanners/')({
-  /* Client-only: the loader needs window.Clerk for the auth token, and a
-     relative fetch('/api/…') has no origin during SSR ("Invalid URL"). */
+  /* Client-only: a relative fetch('/api/…') has no origin during SSR
+     ("Invalid URL"). */
   ssr: false,
   loader: async () => {
-    await getAuthToken()
     return { scanners: await api.listScanners() }
   },
   component: ScannersPage,
