@@ -175,7 +175,7 @@ export function FilterPanel({ filter, onChange, onClear, onSaved, onResult }: {
   return (
     <div className="space-y-2">
       {filter.collapsed ? (
-        <div className="flex min-h-10 items-center gap-3 rounded-lg border bg-card px-3 py-1.5 shadow-sm">
+        <div className="flex min-h-10 items-center gap-3 rounded-lg border border-[var(--line-1)] bg-card px-3 py-1.5 shadow-[var(--shadow-1)]">
           <div className="flex shrink-0 items-center gap-2">
             <span className="size-2 shrink-0 rounded-full bg-primary" />
             <span className="text-sm font-semibold">{title}</span>
@@ -204,7 +204,7 @@ export function FilterPanel({ filter, onChange, onClear, onSaved, onResult }: {
           </div>
         </div>
       ) : (
-        <div className="space-y-2 rounded-lg border bg-card p-2">
+        <div className="space-y-2 rounded-[var(--r-lg)] border border-[var(--line-1)] bg-card p-2 shadow-[var(--shadow-1)]">
           <div className="flex flex-wrap items-center justify-between gap-2 px-1">
             <h2 className="flex items-center gap-1.5 text-sm font-semibold">
               <span className="es-team-label opacity-60">Filter</span>
@@ -244,7 +244,7 @@ export function FilterPanel({ filter, onChange, onClear, onSaved, onResult }: {
             </div>
           )}
 
-          {error && <p className="px-1 text-sm text-red-500">{error}</p>}
+          {error && <p className="px-1 text-sm text-[var(--err)]">{error}</p>}
         </div>
       )}
 

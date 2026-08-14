@@ -54,7 +54,7 @@ export function ResultsTable({ result }: { result: ScanResult }) {
         {result.matches.length} of {result.universe} stocks · data as of{' '}
         {result.data_as_of ? new Date(result.data_as_of).toLocaleString() : '—'} (delayed)
       </p>
-      <div className="max-h-[560px] overflow-auto rounded-md border">
+      <div className="max-h-[560px] overflow-auto rounded-[var(--r-lg)] border border-[var(--line-1)] bg-[var(--bg-1)] shadow-[var(--shadow-1)]">
         <Table>
           <TableHeader>
             <TableRow>
@@ -80,7 +80,8 @@ export function ResultsTable({ result }: { result: ScanResult }) {
                   {m.close?.toLocaleString() ?? '—'}
                 </TableCell>
                 <TableCell className={`es-mono text-right font-medium tabular-nums ${
-                  m.change_pct != null && m.change_pct < 0 ? 'text-red-500' : 'text-emerald-500'}`}>
+                  m.change_pct != null && m.change_pct < 0
+                    ? 'text-[var(--err)]' : 'text-[var(--ok)]'}`}>
                   {m.change_pct != null ? `${m.change_pct.toFixed(2)}%` : '—'}
                 </TableCell>
                 <TableCell className="es-mono text-right tabular-nums text-muted-foreground">

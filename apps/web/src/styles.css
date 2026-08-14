@@ -220,6 +220,18 @@ body {
 
 .es-spacer { flex: 1; }
 
+/* ---------- Topbar nav (Analysis / Scanners) ---------- */
+.es-nav { display: flex; align-items: center; gap: 2px; margin-left: 10px; }
+.es-nav-link {
+  font-size: 12.5px; font-weight: 500;
+  color: var(--text-3);
+  padding: 4px 10px;
+  border-radius: var(--r-sm);
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.es-nav-link:hover { color: var(--text-1); background: var(--bg-2); }
+.es-nav-link.active { color: var(--accent-hi); background: var(--accent-bg); }
+
 .es-pill {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 4px 9px;

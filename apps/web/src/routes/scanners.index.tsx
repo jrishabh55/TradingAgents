@@ -6,7 +6,6 @@ import {
 } from '#/components/scanner/FilterPanel'
 import { ResultsTable } from '#/components/scanner/ResultsTable'
 import { Topbar } from '#/components/shared/Topbar'
-import { Badge } from '#/components/ui/badge'
 import { Button } from '#/components/ui/button'
 import {
   Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
@@ -197,8 +196,7 @@ function ScannersPage() {
                       <CommandGroup heading="Prebuilt">
                         {prebuiltHits.map((s) => (
                           <CommandItem key={s.id} value={s.id} onSelect={() => selectScanner(s)}>
-                            <span>{s.name}</span>
-                            <Badge variant="secondary" className="ml-2">prebuilt</Badge>
+                            {s.name}
                           </CommandItem>
                         ))}
                       </CommandGroup>
@@ -218,7 +216,7 @@ function ScannersPage() {
             </Popover>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 rounded-lg border p-2">
+          <div className="flex flex-wrap items-center gap-2 rounded-[var(--r-lg)] border border-[var(--line-1)] bg-[var(--bg-1)] p-2 shadow-[var(--shadow-1)]">
             <Input
               className="min-w-64 flex-1"
               placeholder="Describe a filter to generate, e.g. &quot;RSI above 60 and price above 200 SMA&quot;…"
@@ -242,7 +240,7 @@ function ScannersPage() {
           )}
         </div>
 
-        {error && <p className="text-sm text-red-500">{error}</p>}
+        {error && <p className="text-sm text-[var(--err)]">{error}</p>}
 
         {filter && (
           <FilterPanel filter={filter} onChange={setFilter} onClear={clearFilter}
@@ -254,7 +252,7 @@ function ScannersPage() {
             {manageOpen ? 'Hide' : 'Manage'} my scanners ({allMine.length})
           </Button>
           {manageOpen && (
-            <div className="space-y-1 rounded-md border p-3">
+            <div className="space-y-1 rounded-[var(--r-lg)] border border-[var(--line-1)] bg-[var(--bg-1)] p-3 shadow-[var(--shadow-1)]">
               {allMine.map((s) => (
                 <div key={s.id}
                   className="flex items-center justify-between gap-2 border-b py-2 last:border-b-0">

@@ -105,6 +105,23 @@ export function Topbar({
         <div className="es-logo-mark">D</div>
         Drishti
       </Link>
+      <nav className="es-nav">
+        <Link
+          to="/"
+          className="es-nav-link no-underline"
+          activeOptions={{ exact: true }}
+          activeProps={{ className: 'active' }}
+        >
+          Analysis
+        </Link>
+        <Link
+          to="/scanners"
+          className="es-nav-link no-underline"
+          activeProps={{ className: 'active' }}
+        >
+          Scanners
+        </Link>
+      </nav>
       {ticker && (
         <div className="es-crumbs">
           <Link to="/" className="text-[var(--text-3)] no-underline">
