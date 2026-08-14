@@ -67,7 +67,10 @@ class ScannerStore:
 
     @contextlib.contextmanager
     def _conn(self):
-        conn = sqlite3.connect(self._path)
+        # 15s busy timeout (matches jobs/store.py): bulk bar upserts from the
+        # ingest loop can hold the write lock past sqlite's 5s default when a
+        # second process (maintenance exec, tests) writes concurrently.
+        conn = sqlite3.connect(self._path, timeout=15)
         conn.execute("PRAGMA journal_mode=WAL")
         conn.row_factory = sqlite3.Row
         try:
