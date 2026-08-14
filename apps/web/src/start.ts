@@ -10,9 +10,9 @@ import { createStart } from '@tanstack/react-start'
 
    By default clerkMiddleware() does NOT protect anything — every route stays
    public; it only makes the parsed session available. Reads
-   CLERK_PUBLISHABLE_KEY (falls back to VITE_CLERK_PUBLISHABLE_KEY, which is
-   already set) and CLERK_SECRET_KEY from process.env — see apps/web/.env and
-   docker-compose.dev.yml's web service. */
+   VITE_CLERK_PUBLISHABLE_KEY first (already set; plain CLERK_PUBLISHABLE_KEY
+   is the fallback) and CLERK_SECRET_KEY from process.env — see apps/web/.env
+   and docker-compose.dev.yml's web service. */
 export const startInstance = createStart(() => {
   return {
     requestMiddleware: [clerkMiddleware()],

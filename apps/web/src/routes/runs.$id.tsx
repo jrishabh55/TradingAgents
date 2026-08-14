@@ -7,6 +7,9 @@ import { ReadingMode } from '#/components/flow/ReadingMode'
 import { Topbar } from '#/components/shared/Topbar'
 
 export const Route = createFileRoute('/runs/$id')({
+  /* Client-only, same as the scanner routes: a relative fetch('/api/…') has
+     no origin during SSR, and auth rides the browser's session cookie. */
+  ssr: false,
   loader: async ({ params }) => {
     return { initial: await api.getRun(params.id) }
   },
