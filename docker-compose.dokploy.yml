@@ -126,6 +126,12 @@ services:
       # Internal DNS on the compose network. Read at request time by the
       # /api/* proxy route inside the built server (apps/web/src/routes/api.$.tsx).
       WEBAPP1_API_BASE: http://api:8080
+      # Clerk on the Start server (clerkMiddleware in src/start.ts +
+      # server-side token minting in the /api proxy). The publishable key is
+      # needed at RUNTIME here too — the build arg above only inlines it into
+      # the client bundle. Values come from the Dokploy env panel.
+      VITE_CLERK_PUBLISHABLE_KEY: ${VITE_CLERK_PUBLISHABLE_KEY}
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:?set CLERK_SECRET_KEY in the Dokploy env panel — server-side Clerk auth cannot run without it}
       # VITE_ALLOWED_HOSTS is gone on purpose: it guarded Vite's DEV server
       # host check. Production is a plain Node server (apps/web/server-node.mjs)
       # with no host filtering — Traefik owns the domain routing.
