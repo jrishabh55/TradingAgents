@@ -75,6 +75,27 @@ def test_meta_condition(tmp_path):
     assert run(store, d2)["matches"] == []
 
 
+def test_meta_not_equal_excludes_null_values(tmp_path):
+    # Regression: object-dtype `None != "X"` is True in pandas, so a null
+    # sector/industry (common now that the universe covers all NSE
+    # mainboard equities, not just the enriched NIFTY500) would otherwise
+    # match every "!=" condition instead of being excluded.
+    store = make_store(tmp_path)
+    store.upsert_instruments([
+        {"symbol": "BANK", "yf_symbol": "BANK.NS", "name": "BANK", "sector": "Banking",
+         "industry": "Banking", "market_cap": 5000.0, "index_memberships": ["NIFTY500"],
+         "fno": False, "fundamentals": {}},
+        {"symbol": "NULLSEC", "yf_symbol": "NULLSEC.NS", "name": "NULLSEC", "sector": None,
+         "industry": None, "market_cap": 5000.0, "index_memberships": [],
+         "fno": False, "fundamentals": {}},
+    ])
+    for sym in ("BANK", "NULLSEC"):
+        store.upsert_bars("1d", bars_long(sym, [101.0] * 30))
+    d = AND(C(left={"meta": "sector"}, op="!=", right={"const_str": "IT"}))
+    matches = {m["symbol"] for m in run(store, d)["matches"]}
+    assert matches == {"BANK"}
+
+
 def test_fundamental_condition(tmp_path):
     store = make_store(tmp_path, {"A": [101.0] * 30})
     d = AND(C(left={"fundamental": "market_cap"}, op=">", right={"const": 1000}))

@@ -147,7 +147,14 @@ export function FilterPanel({ filter, onChange, onClear, onSaved, onResult }: {
       // ActiveFilter.collapsed).
       onChange({ ...filter, collapsed: true, matchCount: result.matches.length })
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      let message = e instanceof Error ? e.message : String(e)
+      // The 422 node-count error only counts visible conditions — a user
+      // who never touched the (invisible) liquidity floor would otherwise
+      // have no idea it's the thing pushing them over the limit.
+      if (filter.liquidOnly && message.includes('too many conditions')) {
+        message += " — the 'Liquid only' toggle adds one hidden condition; turn it off or remove a condition."
+      }
+      setError(message)
     } finally {
       setBusy(false)
     }
@@ -206,7 +213,7 @@ export function FilterPanel({ filter, onChange, onClear, onSaved, onResult }: {
           </div>
 
           <div className="flex items-center gap-2 px-1">
-            <Switch id="liquid-only" size="sm" checked={filter.liquidOnly}
+            <Switch id="liquid-only" size="sm" checked={filter.liquidOnly} disabled={busy}
               onCheckedChange={(v) => onChange({ ...filter, liquidOnly: v })} />
             <Label htmlFor="liquid-only" className="text-xs font-medium">Liquid only</Label>
             <span className="text-xs text-muted-foreground">20d avg volume &ge; 100k</span>

@@ -168,7 +168,10 @@ class ScanEngine:
         elif c.op == "in":
             mask = left.isin(right if isinstance(right, list) else [right])
         elif c.op == "!=":
-            mask = left != right
+            # None != "X" is True for object-dtype Series, so a null
+            # sector/industry would otherwise match every "!=" condition —
+            # require non-null too.
+            mask = (left != right) & left.notna()
         else:  # ==
             mask = left == right
         return mask.fillna(False).astype(bool)
