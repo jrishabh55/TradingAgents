@@ -130,7 +130,38 @@ client uses that origin instead — webapp1 has CORS open by default.
 |---|---|---|
 | `WEBAPP1_API_BASE` | `wrangler.jsonc` (worker) + `vite.config.ts` (dev) | Upstream FastAPI URL the proxy forwards to. |
 | `VITE_API_BASE` | build-time | Override frontend's API origin (skips the proxy). Default `/api`. |
-| `VITE_API_TOKEN` | build-time | If webapp1 has `WEBAPP_AUTH_TOKEN`, ship the token here. Sent as `Authorization: Bearer …`. |
+| `VITE_API_TOKEN` | build-time | Legacy shared bearer: if webapp1 has `WEBAPP_AUTH_TOKEN`, ship the token here. Sent as `Authorization: Bearer …` from the browser; the `/api/$` proxy leaves it untouched if present (see Auth below). |
+| `VITE_CLERK_PUBLISHABLE_KEY` | build-time (client) + runtime (server) | Identifies the Clerk app. Safe to ship to the browser. `@clerk/tanstack-react-start` also reads this **same** var server-side (checks `VITE_CLERK_PUBLISHABLE_KEY` before a plain `CLERK_PUBLISHABLE_KEY`) — no separate non-VITE var needed. |
+| `CLERK_SECRET_KEY` | runtime (server only) | Used by `clerkMiddleware()` (`src/start.ts`) to parse the session cookie, and by `auth()`/`getToken()` in the `/api/$` proxy (`src/routes/api.$.tsx`) to mint a Bearer token for FastAPI. Never exposed to the client. Local dev: set in `apps/web/.env` (gitignored) and passed through to the `web` container via `docker-compose.dev.yml`'s `env_file: apps/web/.env` — **not** hardcoded in the compose file. Prod: set directly in the hosting platform's env store (see Deployment below). |
+
+### Auth (Clerk, TanStack Start–native)
+
+Since 2026-08-14 the app uses `@clerk/tanstack-react-start` (not the generic
+`@clerk/react`), so auth is wired at the framework level instead of bridged
+by hand:
+
+- `src/start.ts` registers `clerkMiddleware()` as Start `requestMiddleware` —
+  runs on every request (page loads AND server routes), parses the Clerk
+  session cookie, does **not** itself protect anything (all routes stay
+  public; it just makes the parsed session available downstream).
+- `src/routes/__root.tsx`'s `<ClerkProvider>` takes no `publishableKey` prop
+  anymore — it reads the middleware-populated context automatically
+  (`getGlobalStartContext()` under the hood).
+- `src/routes/api.$.tsx` (the `/api/*` proxy) calls `auth()` from
+  `@clerk/tanstack-react-start/server`; if a session exists and the incoming
+  request doesn't already carry an `Authorization` header, it calls
+  `getToken()` and attaches `Authorization: Bearer <token>` before
+  forwarding to FastAPI. This covers every method, including the SSE `GET
+  .../events` stream — `EventSource` sends the session cookie automatically
+  on same-origin requests, no client-side token needed.
+- The client (`lib/api.ts`) no longer does anything Clerk-aware: no
+  `getAuthToken()`, no async token bridge. It only optionally attaches the
+  legacy `VITE_API_TOKEN` bearer if that var is set (open/shared-token
+  deployments with no Clerk).
+- There is no more `lib/clerk.ts` — that hand-built "wait for Clerk to
+  hydrate" promise bridge (used by route loaders under the old
+  `@clerk/react` setup) is gone; loaders just fetch, and the session rides
+  along as a cookie.
 
 ## Deployment
 
@@ -232,6 +263,6 @@ heartbeat keeps SSE alive.
 - Re-run / Compare buttons on `ReadingMode` are present but not wired.
 - The agent rail in `ReadingMode` doesn't yet expose per-agent transcripts.
 - No tests yet beyond what `vitest` + `@testing-library/react` ship with.
-- Auth is bearer-only and read from a build-time env var; for multi-user
-  deploys add a real auth provider (Cloudflare Access, Clerk, etc.) via the
-  `router-core/auth-and-guards` skill.
+- Auth is Clerk-native (`@clerk/tanstack-react-start`, see the Auth section
+  above) with a legacy shared-bearer (`VITE_API_TOKEN`) fallback for
+  open/no-Clerk deployments.

@@ -91,12 +91,24 @@ services:
       context: ./apps/web
       dockerfile: Dockerfile.dev
     image: tradingagents-web-dev:latest
+    # Real container env vars (like the api service's `env_file: - .env`
+    # above) — needed because the Clerk Start SDK (clerkMiddleware in
+    # src/start.ts, auth()/getToken() in src/routes/api.$.tsx) reads
+    # CLERK_SECRET_KEY / VITE_CLERK_PUBLISHABLE_KEY off process.env
+    # server-side. Vite's own dotenv loading only exposes VITE_-prefixed
+    # vars via import.meta.env to CLIENT code — it does NOT put
+    # CLERK_SECRET_KEY into process.env for server-side code, so the
+    # apps/web/.env bind-mount below isn't sufficient on its own for this.
+    # No value is hardcoded here — see apps/web/.env (gitignored).
+    env_file:
+      - apps/web/.env
     environment:
       # Internal DNS: the API service is reachable at hostname `api`
       # within the compose network. The entrypoint rewrites
       # apps/web/wrangler.jsonc with this URL before Vite starts so
       # the Cloudflare Worker dev proxy in apps/web/src/routes/api.$.tsx
-      # forwards /api/* to http://api:8080.
+      # forwards /api/* to http://api:8080. Wins over env_file's copy of
+      # WEBAPP1_API_BASE (explicit `environment:` takes precedence).
       WEBAPP1_API_BASE: http://api:8080
     ports:
       - "3000:3000"
