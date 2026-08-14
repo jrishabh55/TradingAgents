@@ -40,6 +40,11 @@ Patterns: {", ".join(sorted(PATTERNS))}
 Fundamentals: {", ".join(sorted(FUNDAMENTALS))} (market_cap is in INR)
 Meta: {", ".join(sorted(METAS))}
 
+Period performance ("profitable/up this week/month") means the return over that period:
+use one condition on the 1w/1mo timeframe, NOT a daily streak with for_n_bars.
+Example: "profitable this week" ->
+{{"timeframe": "1w", "left": {{"field": "close"}}, "op": ">", "right": {{"field": "open"}}}}
+
 Example: "volume at least twice its 20 day average" ->
 {{"timeframe": "1d", "left": {{"field": "volume"}}, "op": ">",
   "right": {{"expr": "*", "args": [{{"const": 2}}, {{"fn": "SMA", "of": "volume", "period": 20}}]}}}}"""

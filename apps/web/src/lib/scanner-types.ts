@@ -54,6 +54,8 @@ export type ScanMatch = {
 export type ScanResult = {
   data_as_of: string
   universe: number
+  /** Timeframe change_pct was computed on (coarsest in the definition, min 1d). */
+  change_tf?: string
   matches: ScanMatch[]
 }
 

@@ -22,6 +22,9 @@ from apps.api.scanner.schema import Condition, Group, Operand
 from apps.api.scanner.store import ScannerStore, get_scanner_store
 
 _RESAMPLE = {"1w": "W", "1mo": "ME"}
+# ponytail: %chg reports on the coarsest timeframe in the definition (1d floor),
+# so a 1w filter shows weekly change instead of a misleading daily one.
+_TF_ORDER = ("5m", "15m", "1h", "1d", "1w", "1mo")
 _AGG = {"open": "first", "high": "max", "low": "min", "close": "last", "volume": "sum"}
 
 PanelMap = Dict[str, Panel]
@@ -97,7 +100,12 @@ class ScanEngine:
         symbols = [s for s in mask.index[mask] if s in d1.close.columns]
 
         close = d1.close.iloc[-1]
-        prev = d1.close.iloc[-2] if len(d1.close) > 1 else close
+        chg_tf = max(timeframes, key=_TF_ORDER.index)
+        if chg_tf in ("5m", "15m", "1h"):
+            chg_tf = "1d"  # intraday bar-over-bar change is noise; keep daily
+        tf_close = panels[chg_tf].close
+        chg_now = tf_close.iloc[-1]
+        prev = tf_close.iloc[-2] if len(tf_close) > 1 else chg_now
         vol = d1.volume.iloc[-1]
         vol_avg = d1.volume.rolling(20).mean().iloc[-1]
         inst = self._store.instruments_df()
@@ -110,7 +118,7 @@ class ScanEngine:
                 "name": (row["name"] if row is not None else s) or s,
                 "sector": row["sector"] if row is not None else None,
                 "close": _r(close.get(s)),
-                "change_pct": _r((close.get(s) / prev.get(s) - 1) * 100
+                "change_pct": _r((chg_now.get(s) / prev.get(s) - 1) * 100
                                  if prev.get(s) else None),
                 "volume": _r(vol.get(s)),
                 "rvol": _r(vol.get(s) / vol_avg.get(s)
@@ -122,7 +130,7 @@ class ScanEngine:
         data_as_of = max((str(self._store.latest_ts(tf)) for tf in ("1d", "1h", "15m", "5m")
                           if self._store.latest_ts(tf)), default="")
         return {"data_as_of": data_as_of, "universe": int(d1.close.shape[1]),
-                "matches": matches}
+                "change_tf": chg_tf, "matches": matches}
 
     def _group(self, g: Group, panels: PanelMap) -> Tuple[pd.Series, Dict[str, pd.Series]]:
         masks, values = [], {}

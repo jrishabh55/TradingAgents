@@ -20,7 +20,7 @@ function OperandEditor({ value, onChange, allowMult }: {
         kind === 'const' ? { kind: 'const', value: 100 }
           : kind === 'field' ? { kind: 'field', field: 'close' }
             : { kind: 'fn', fn: 'SMA', of: 'close', period: 20 })}>
-        <SelectTrigger className="w-[84px] shrink-0 text-xs"><SelectValue /></SelectTrigger>
+        <SelectTrigger className="w-[104px] shrink-0 text-xs"><SelectValue /></SelectTrigger>
         <SelectContent>
           <SelectItem value="const">Number</SelectItem>
           <SelectItem value="field">Price/Vol</SelectItem>
@@ -51,7 +51,7 @@ function OperandEditor({ value, onChange, allowMult }: {
               <SelectItem key={f} value={f}>{f}</SelectItem>)}</SelectContent>
           </Select>
           <Select value={value.of} onValueChange={(of) => onChange({ ...value, of })}>
-            <SelectTrigger className="w-24 shrink-0 text-xs"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-28 shrink-0 text-xs"><SelectValue /></SelectTrigger>
             <SelectContent>{FIELD_OPTIONS.map((f) =>
               <SelectItem key={f} value={f}>{f}</SelectItem>)}</SelectContent>
           </Select>
@@ -111,6 +111,7 @@ export function ConditionRows({ state, onChange }: {
             <span className="es-team-label flex-1">Left operand</span>
             <span className="es-team-label w-[108px] shrink-0">Operator</span>
             <span className="es-team-label flex-1">Right operand</span>
+            <span className="es-team-label w-16 shrink-0">Streak</span>
             <span className="w-7 shrink-0" />
           </div>
 
@@ -130,6 +131,10 @@ export function ConditionRows({ state, onChange }: {
               </Select>
               <OperandEditor allowMult value={r.right}
                 onChange={(right) => updateRow(gi, ri, { ...r, right })} />
+              <Input type="number" min={1} max={100} className="w-16 shrink-0 text-xs"
+                placeholder="bars" title="Condition must hold on each of the last N bars"
+                value={r.forN ?? ''} onChange={(e) => updateRow(gi, ri, {
+                  ...r, forN: e.target.value ? Number(e.target.value) : undefined })} />
               <Button size="icon-sm" variant="ghost" className="ml-auto shrink-0 text-muted-foreground hover:text-destructive"
                 aria-label="Remove condition" onClick={() => {
                   const next = structuredClone(state)
