@@ -221,3 +221,18 @@ def test_multi_timeframe_asymmetric_symbols(tmp_path):
     d_or = {"logic": "OR", "children": [C(), C(timeframe="15m", right={"const": 200})]}
     res_or = run(store, d_or)
     assert {m["symbol"] for m in res_or["matches"]} == {"A", "B"}
+
+
+def test_warm_prebuilds_all_panels(tmp_path):
+    store = make_store(tmp_path, {"A": [101.0] * 30})
+    engine = ScanEngine(store)
+    engine.warm()
+    assert {"1d", "1h", "15m", "5m", "1w"} <= set(engine._panels)
+    # A scan after warm() must not rebuild (same store version -> cache hit).
+    v = engine._version
+    run_def = parse_definition(
+        {"logic": "AND", "children": [
+            {"timeframe": "1d", "left": {"field": "close"}, "op": ">",
+             "right": {"const": 100}}]})
+    engine.run(run_def)
+    assert engine._version == v

@@ -89,6 +89,18 @@ def refresh_all(store: ScannerStore) -> None:
         logger.info("scanner ingest: %s -> %d bars", tf, n)
 
 
+def _warm_engine() -> None:
+    """Pre-build scan panels after bars land — the first scan after every
+    refresh otherwise pays a multi-second cold rebuild. Late import: engine
+    imports the store module; keeping ingest's import lazy avoids a cycle."""
+    from apps.api.scanner.engine import get_engine
+
+    try:
+        get_engine().warm()
+    except Exception:  # noqa: BLE001 — warmup is an optimization, never fatal
+        logger.exception("scanner panel warmup failed")
+
+
 async def ingest_loop() -> None:
     store = get_scanner_store()
     if store.instruments_df().empty:
@@ -98,6 +110,7 @@ async def ingest_loop() -> None:
     if store.latest_ts("1d") is None:
         logger.info("scanner initial backfill starting")
         await asyncio.to_thread(refresh_all, store)
+        await asyncio.to_thread(_warm_engine)
         # Fresh deploys would otherwise sit with NULL sectors/fundamentals
         # until the first Saturday sweep — enrich right after the initial
         # backfill instead, and mark this week done so Saturday doesn't redo it.
@@ -115,11 +128,13 @@ async def ingest_loop() -> None:
                 last_intraday = loop_t
                 for tf in ("5m", "15m", "1h"):
                     await asyncio.to_thread(refresh_timeframe, store, tf)
+                await asyncio.to_thread(_warm_engine)
             today = now.date().isoformat()
             if (is_trading_day(now.date()) and now.hour >= EOD_HOUR_IST
                     and eod_done_for != today):
                 eod_done_for = today
                 await asyncio.to_thread(refresh_timeframe, store, "1d")
+                await asyncio.to_thread(_warm_engine)
             # Weekly fundamentals sweep on Saturdays.
             week = f"{now.isocalendar().year}-{now.isocalendar().week}"
             if now.weekday() == 5 and enrich_done_for != week:

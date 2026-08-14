@@ -59,6 +59,13 @@ class ScanEngine:
             if len(inst) else pd.DataFrame()
         return Panel(fundamentals=fund, meta=meta, **frames)
 
+    def warm(self) -> None:
+        """Pre-build every panel after an ingest cycle so no user request pays
+        the cold rebuild (~seconds at full-universe size). Called from the
+        ingest loop right after bars land; user scans hitting mid-warm simply
+        wait on the same lock they'd otherwise hold while rebuilding."""
+        self._resolve_panels({"1d", "1h", "15m", "5m", "1w"})
+
     def _resolve_panels(self, timeframes: Set[str]) -> PanelMap:
         """Per-run snapshot: check the store version exactly once, refresh the
         instance cache if stale, then return a local dict covering exactly the
