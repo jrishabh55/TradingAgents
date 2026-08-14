@@ -8,7 +8,9 @@ import { Input } from '#/components/ui/input'
 import { Label } from '#/components/ui/label'
 import { Textarea } from '#/components/ui/textarea'
 import { api } from '#/lib/api'
-import { astToRows, emptyRow, rowsToAst, type BuilderState } from '#/lib/scanner-rows'
+import {
+  astToRows, canonicalScanJson, emptyRow, rowsToAst, type BuilderState,
+} from '#/lib/scanner-rows'
 import type { ScanGroup, ScanResult, ScannerSummary } from '#/lib/scanner-types'
 
 /** Where the active filter came from — decides the panel title and which
@@ -37,7 +39,7 @@ export function blankFilter(): ActiveFilter {
   const def = rowsToAst(state)
   return {
     origin: { kind: 'blank' }, state,
-    json: JSON.stringify(def, null, 2), originalJson: JSON.stringify(def), explanation: null,
+    json: JSON.stringify(def, null, 2), originalJson: canonicalScanJson(def), explanation: null,
   }
 }
 
@@ -48,9 +50,11 @@ export function filterFromScanner(s: ScannerSummary): ActiveFilter {
       : { kind: 'mine', id: s.id, name: s.name, description: s.description },
     state: astToRows(s.definition),
     json: JSON.stringify(s.definition, null, 2),
-    // Compact (no pretty-print) so it compares equal to safeJson()'s output
-    // below when nothing has actually changed.
-    originalJson: JSON.stringify(s.definition),
+    // Normalized through the same rows round-trip that the "current" side
+    // goes through (see canonicalScanJson) — comparing raw API JSON against
+    // a round-tripped reconstruction would flag unedited fn operands (e.g.
+    // `{ fn: 'MACD' }`, which gains an implicit `of: 'close'`) as dirty.
+    originalJson: canonicalScanJson(s.definition),
     explanation: null,
   }
 }
@@ -58,7 +62,9 @@ export function filterFromScanner(s: ScannerSummary): ActiveFilter {
 export function filterFromNl(query: string, definition: ScanGroup, explanation: string): ActiveFilter {
   return {
     origin: { kind: 'nl', query }, state: astToRows(definition),
-    json: JSON.stringify(definition, null, 2), originalJson: JSON.stringify(definition), explanation,
+    json: JSON.stringify(definition, null, 2),
+    originalJson: canonicalScanJson(definition),
+    explanation,
   }
 }
 
@@ -71,13 +77,13 @@ function currentDefinition(filter: ActiveFilter): ScanGroup {
   }
 }
 
-/** Compact-stringifies the current definition for comparison against
- *  `originalJson` (also compact — see filterFromScanner). Returns null
- *  while the JSON fallback textarea holds invalid JSON, which is treated
- *  as "edited". */
-function safeJson(filter: ActiveFilter): string | null {
+/** Canonical JSON of the current definition, for comparison against
+ *  `originalJson` (see canonicalScanJson — both sides go through the same
+ *  normalization). Returns null while the JSON fallback textarea holds
+ *  invalid JSON, which is treated as "edited". */
+function safeCanonicalJson(filter: ActiveFilter): string | null {
   try {
-    return JSON.stringify(currentDefinition(filter))
+    return canonicalScanJson(currentDefinition(filter))
   } catch {
     return null
   }
@@ -96,7 +102,7 @@ export function FilterPanel({ filter, onChange, onClear, onSaved, onResult }: {
 
   const { origin } = filter
   const isPrebuiltEdited = origin.kind === 'prebuilt' &&
-    safeJson(filter) !== filter.originalJson
+    safeCanonicalJson(filter) !== filter.originalJson
   const title = origin.kind === 'mine' || origin.kind === 'blank'
     ? (origin.kind === 'mine' ? origin.name : 'Unsaved filter')
     : origin.kind === 'prebuilt'
@@ -148,7 +154,15 @@ export function FilterPanel({ filter, onChange, onClear, onSaved, onResult }: {
 
       {error && <p className="text-sm text-red-500">{error}</p>}
 
-      <SaveDialog open={saveOpen} onOpenChange={setSaveOpen} filter={filter}
+      {/* Radix's Dialog only calls onOpenChange for its own internal
+          close interactions (Escape, overlay click, the X button) — it
+          never fires when a parent flips the controlled `open` prop from
+          false to true, so a "reset on open" effect/handler inside
+          SaveDialog would never actually run. Keying by filter identity +
+          open state forces a full remount (fresh useState defaults) each
+          time the dialog opens against a (possibly different) filter. */}
+      <SaveDialog key={`${origin.kind === 'mine' ? origin.id : 'temp'}-${saveOpen}`}
+        open={saveOpen} onOpenChange={setSaveOpen} filter={filter}
         getDefinition={() => currentDefinition(filter)}
         onSaved={(s, wasUpdate) => { setSaveOpen(false); onSaved(s, wasUpdate) }} />
     </div>
@@ -162,23 +176,14 @@ function SaveDialog({ open, onOpenChange, filter, getDefinition, onSaved }: {
   getDefinition: () => ScanGroup
   onSaved: (scanner: ScannerSummary, wasUpdate: boolean) => void
 }) {
+  // The `key` on this component (see FilterPanel) forces a remount — and
+  // therefore fresh initial state here — every time the dialog opens or
+  // the underlying filter's saved-scanner identity changes.
   const mineOrigin = filter.origin.kind === 'mine' ? filter.origin : null
   const [name, setName] = useState(mineOrigin?.name ?? '')
   const [description, setDescription] = useState(mineOrigin?.description ?? '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-
-  // Reset the form to match whichever saved scanner (if any) is currently
-  // loaded, each time the dialog opens — otherwise a previous save's name
-  // would linger into the next one.
-  function handleOpenChange(next: boolean) {
-    if (next) {
-      setName(mineOrigin?.name ?? '')
-      setDescription(mineOrigin?.description ?? '')
-      setError(null)
-    }
-    onOpenChange(next)
-  }
 
   const canUpdate = mineOrigin !== null && name.trim() === mineOrigin.name
 
@@ -199,7 +204,7 @@ function SaveDialog({ open, onOpenChange, filter, getDefinition, onSaved }: {
   }
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Save filter</DialogTitle>

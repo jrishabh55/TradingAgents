@@ -35,6 +35,10 @@ function ScannersPage() {
   const [error, setError] = useState<string | null>(null)
   const [manageOpen, setManageOpen] = useState(false)
   const resultsRef = useRef<HTMLElement>(null)
+  // Guards against rapid successive selectScanner calls resolving out of
+  // order (click scanner A, then B, before A's preview response lands) —
+  // only the response matching the latest request is applied.
+  const selectSeqRef = useRef(0)
 
   /* Results render below the filter panel — off-screen once the panel and
      manage section grow. Without this, a completed scan looks like nothing
@@ -62,10 +66,12 @@ function ScannersPage() {
   async function selectScanner(s: ScannerSummary) {
     setQuery(''); setError(null)
     setFilter(filterFromScanner(s))
+    const seq = ++selectSeqRef.current
     try {
-      setResult({ label: s.name, data: await api.previewScanner(s.definition) })
+      const data = await api.previewScanner(s.definition)
+      if (seq === selectSeqRef.current) setResult({ label: s.name, data })
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      if (seq === selectSeqRef.current) setError(e instanceof Error ? e.message : String(e))
     }
   }
 
@@ -95,10 +101,18 @@ function ScannersPage() {
     setFilter(filterFromScanner(scanner))
   }
 
+  function clearFilter() {
+    setFilter(null)
+    setResult(null)
+  }
+
   async function remove(s: ScannerSummary) {
     await api.deleteScanner(s.id)
     setItems((prev) => prev.filter((i) => i.id !== s.id))
-    if (filter?.origin.kind === 'mine' && filter.origin.id === s.id) setFilter(null)
+    // The result and filter panel are showing whatever the active filter
+    // last ran — if that filter is the scanner being deleted, both go
+    // stale together.
+    if (filter?.origin.kind === 'mine' && filter.origin.id === s.id) clearFilter()
   }
 
   return (
@@ -152,7 +166,7 @@ function ScannersPage() {
         {error && <p className="text-sm text-red-500">{error}</p>}
 
         {filter && (
-          <FilterPanel filter={filter} onChange={setFilter} onClear={() => setFilter(null)}
+          <FilterPanel filter={filter} onChange={setFilter} onClear={clearFilter}
             onSaved={handleSaved} onResult={(data, label) => setResult({ label, data })} />
         )}
 

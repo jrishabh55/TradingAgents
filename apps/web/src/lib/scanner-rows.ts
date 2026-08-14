@@ -99,6 +99,22 @@ export function rowsToAst(state: BuilderState): ScanGroup {
   }
 }
 
+/** Canonical compact-JSON form of a definition, normalized through the rows
+ *  round-trip whenever the shape is row-representable (astToRows/rowsToAst
+ *  fill in defaults — e.g. a bare `{ fn: 'MACD' }` operand gains
+ *  `of: 'close'` — so a raw API definition and its post-edit reconstruction
+ *  can differ textually with zero actual edits). Shapes the row builder
+ *  can't represent (patterns, deep nesting) fall back to a raw compact
+ *  stringify, since there's no normalized form to round-trip through.
+ *
+ *  Used to detect whether a loaded filter has actually been edited —
+ *  compare `canonicalScanJson(original)` against
+ *  `canonicalScanJson(current)` rather than raw JSON.stringify. */
+export function canonicalScanJson(def: ScanGroup): string {
+  const rows = astToRows(def)
+  return JSON.stringify(rows ? rowsToAst(rows) : def)
+}
+
 export function astToRows(def: ScanGroup): BuilderState | null {
   const groups: BuilderState['groups'] = []
   const top: Row[] = []

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { astToRows, emptyRow, rowsToAst } from './scanner-rows'
+import { astToRows, canonicalScanJson, emptyRow, rowsToAst } from './scanner-rows'
 import type { ScanGroup } from './scanner-types'
 
 const SIMPLE: ScanGroup = {
@@ -45,5 +45,57 @@ describe('rows <-> ast', () => {
   it('emptyRow produces a valid condition', () => {
     const ast = rowsToAst({ groups: [{ logic: 'AND', rows: [emptyRow()] }] })
     expect(ast.children.length).toBe(1)
+  })
+})
+
+describe('canonicalScanJson', () => {
+  // Regression coverage for a real bug: prebuilt scanners like
+  // macd_bull_cross and supertrend_flip use `fn` operands without an `of`
+  // (defaults to 'close' on round-trip) or with only a `period` set — a
+  // naive raw-vs-round-tripped JSON.stringify comparison flagged these as
+  // "edited" the moment they loaded, with zero actual user edits.
+  it('is stable across the rows round-trip for an fn operand missing `of`', () => {
+    const def: ScanGroup = {
+      logic: 'AND',
+      children: [{ timeframe: '1d', left: { fn: 'MACD' }, op: '>', right: { const: 0 } }],
+    }
+    const rows = astToRows(def)
+    expect(rows).not.toBeNull()
+    expect(canonicalScanJson(rowsToAst(rows!))).toBe(canonicalScanJson(def))
+  })
+
+  it('is stable across the rows round-trip for an fn operand with only a period set', () => {
+    const def: ScanGroup = {
+      logic: 'AND',
+      children: [{
+        timeframe: '1d', left: { fn: 'RSI', of: 'close', period: 14 },
+        op: '<', right: { const: 30 },
+      }],
+    }
+    const rows = astToRows(def)
+    expect(rows).not.toBeNull()
+    expect(canonicalScanJson(rowsToAst(rows!))).toBe(canonicalScanJson(def))
+  })
+
+  it('load with no edit never appears dirty, for prebuilt-like shapes', () => {
+    const shapes: ScanGroup[] = [
+      { logic: 'AND', children: [{ timeframe: '1d', left: { fn: 'MACD' }, op: 'crosses_above', right: { const: 0 } }] },
+      { logic: 'AND', children: [{ timeframe: '1d', left: { fn: 'SUPERTREND', period: 10 }, op: '<', right: { field: 'close' } }] },
+    ]
+    for (const def of shapes) {
+      const rows = astToRows(def)
+      expect(rows).not.toBeNull()
+      // Simulates FilterPanel: originalJson at load time vs. the "current"
+      // side reconstructed from rows with no edits applied.
+      const originalJson = canonicalScanJson(def)
+      const currentJson = canonicalScanJson(rowsToAst(rows!))
+      expect(currentJson).toBe(originalJson)
+    }
+  })
+
+  it('falls back to raw compact JSON for shapes the row builder cannot represent', () => {
+    const def: ScanGroup = { logic: 'AND', children: [{ timeframe: '1d', left: { pattern: 'doji' } }] }
+    expect(astToRows(def)).toBeNull()
+    expect(canonicalScanJson(def)).toBe(JSON.stringify(def))
   })
 })
