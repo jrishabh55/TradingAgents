@@ -143,9 +143,8 @@ export function Topbar({
       </Link>
       <nav className="es-nav">
         <Link
-          to="/"
+          to="/analyse"
           className="es-nav-link no-underline"
-          activeOptions={{ exact: true }}
           activeProps={{ className: 'active' }}
         >
           Analysis
@@ -160,7 +159,7 @@ export function Topbar({
       </nav>
       {ticker && (
         <div className="es-crumbs">
-          <Link to="/" className="text-[var(--text-3)] no-underline">
+          <Link to="/analyse" className="text-[var(--text-3)] no-underline">
             Analyses
           </Link>
           <span className="sep">/</span>
@@ -208,7 +207,7 @@ export function Topbar({
         </button>
       )}
       <HelperDownloadLink />
-      <Link to="/" className="es-btn primary sm no-underline">
+      <Link to="/analyse" className="es-btn primary sm no-underline">
         New analysis
       </Link>
       <CreditsPill />

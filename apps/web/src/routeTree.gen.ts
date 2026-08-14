@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as AnalyseRouteImport } from './routes/analyse'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ScannersIndexRouteImport } from './routes/scanners.index'
 import { Route as ScannersNewRouteImport } from './routes/scanners.new'
@@ -16,6 +17,11 @@ import { Route as RunsIdRouteImport } from './routes/runs.$id'
 import { Route as ApiSplatRouteImport } from './routes/api.$'
 import { Route as ScannersIdEditRouteImport } from './routes/scanners.$id.edit'
 
+const AnalyseRoute = AnalyseRouteImport.update({
+  id: '/analyse',
+  path: '/analyse',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -49,6 +55,7 @@ const ScannersIdEditRoute = ScannersIdEditRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/analyse': typeof AnalyseRoute
   '/api/$': typeof ApiSplatRoute
   '/runs/$id': typeof RunsIdRoute
   '/scanners/new': typeof ScannersNewRoute
@@ -57,6 +64,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/analyse': typeof AnalyseRoute
   '/api/$': typeof ApiSplatRoute
   '/runs/$id': typeof RunsIdRoute
   '/scanners/new': typeof ScannersNewRoute
@@ -66,6 +74,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/analyse': typeof AnalyseRoute
   '/api/$': typeof ApiSplatRoute
   '/runs/$id': typeof RunsIdRoute
   '/scanners/new': typeof ScannersNewRoute
@@ -76,6 +85,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/analyse'
     | '/api/$'
     | '/runs/$id'
     | '/scanners/new'
@@ -84,6 +94,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/analyse'
     | '/api/$'
     | '/runs/$id'
     | '/scanners/new'
@@ -92,6 +103,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/analyse'
     | '/api/$'
     | '/runs/$id'
     | '/scanners/new'
@@ -101,6 +113,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AnalyseRoute: typeof AnalyseRoute
   ApiSplatRoute: typeof ApiSplatRoute
   RunsIdRoute: typeof RunsIdRoute
   ScannersNewRoute: typeof ScannersNewRoute
@@ -110,6 +123,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/analyse': {
+      id: '/analyse'
+      path: '/analyse'
+      fullPath: '/analyse'
+      preLoaderRoute: typeof AnalyseRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -157,6 +177,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AnalyseRoute: AnalyseRoute,
   ApiSplatRoute: ApiSplatRoute,
   RunsIdRoute: RunsIdRoute,
   ScannersNewRoute: ScannersNewRoute,

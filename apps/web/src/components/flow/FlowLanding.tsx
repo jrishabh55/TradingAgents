@@ -68,7 +68,7 @@ export interface FlowState {
   checkpoint: boolean
 }
 
-export function FlowLanding() {
+export function FlowLanding({ initialTicker }: { initialTicker?: string } = {}) {
   const navigate = useNavigate()
   const [config, setConfig] = useState<ConfigResponse | null>(null)
   const [recents, setRecents] = useState<RunSummary[]>([])
@@ -96,7 +96,7 @@ export function FlowLanding() {
 
   const today = useMemo(() => new Date().toISOString().slice(0, 10), [])
   const [form, setForm] = useState<FlowState>({
-    ticker: 'SPY',
+    ticker: initialTicker || 'SPY',
     date: today,
     depth: 1,
     analysts: ['market', 'social', 'news', 'fundamentals'],
@@ -123,7 +123,7 @@ export function FlowLanding() {
           const models = c.models_by_provider[provider] ?? []
           return {
             ...f,
-            ticker: c.default_ticker || f.ticker,
+            ticker: initialTicker || c.default_ticker || f.ticker,
             provider,
             shallowThinker: f.shallowThinker || models[0]?.id || '',
             deepThinker:

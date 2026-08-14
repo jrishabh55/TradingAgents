@@ -1,3 +1,4 @@
+import { Link } from '@tanstack/react-router'
 import { useMemo, useState } from 'react'
 import { Dialog, DialogContent, DialogTitle } from '#/components/ui/dialog'
 import {
@@ -58,7 +59,11 @@ export function ResultsTable({ result }: { result: ScanResult }) {
         <Table>
           <TableHeader>
             <TableRow>
-              {[...BASE_COLS.map((c) => ({ key: String(c.key), label: c.label })),
+              {[...BASE_COLS.map((c) => ({
+                key: String(c.key),
+                label: c.key === 'change_pct' && result.change_tf && result.change_tf !== '1d'
+                  ? `% Chg [${result.change_tf}]` : c.label,
+              })),
                 ...valueCols.map((k) => ({ key: k, label: k }))].map((c) => (
                 <TableHead key={c.key} onClick={() => onSort(c.key)}
                   className={`es-team-label sticky top-0 z-10 cursor-pointer select-none whitespace-nowrap bg-card ${
@@ -67,6 +72,9 @@ export function ResultsTable({ result }: { result: ScanResult }) {
                   {c.label}{sortKey === c.key ? (desc ? ' ↓' : ' ↑') : ''}
                 </TableHead>
               ))}
+              <TableHead className="es-team-label sticky top-0 z-10 select-none whitespace-nowrap bg-card text-right">
+                Analyse
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -95,10 +103,18 @@ export function ResultsTable({ result }: { result: ScanResult }) {
                     {m.values[k]?.toFixed(2) ?? '—'}
                   </TableCell>
                 ))}
+                <TableCell className="text-right">
+                  {/* NSE symbols run as Yahoo tickers (SYMBOL.NS) — see schemas.py */}
+                  <Link to="/analyse" search={{ ticker: `${m.symbol}.NS` }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="text-xs font-medium text-primary underline-offset-2 hover:underline">
+                    Analyse →
+                  </Link>
+                </TableCell>
               </TableRow>
             ))}
             {!rows.length && (
-              <TableRow><TableCell colSpan={7 + valueCols.length}
+              <TableRow><TableCell colSpan={8 + valueCols.length}
                 className="py-8 text-center text-muted-foreground">
                 No stocks match right now.
               </TableCell></TableRow>
@@ -108,14 +124,25 @@ export function ResultsTable({ result }: { result: ScanResult }) {
       </div>
 
       <Dialog open={!!chartSymbol} onOpenChange={(o) => !o && setChartSymbol(null)}>
-        <DialogContent className="max-w-4xl">
+        <DialogContent className="sm:max-w-[min(1280px,92vw)]">
           <DialogTitle>{chartSymbol} — live chart (TradingView)</DialogTitle>
           {chartSymbol && (
-            <iframe
-              title={`chart-${chartSymbol}`}
-              src={`https://s.tradingview.com/widgetembed/?symbol=${encodeURIComponent(`NSE:${chartSymbol}`)}&interval=D&hidesidetoolbar=1&theme=dark&style=1&locale=en`}
-              className="h-[480px] w-full rounded-md border-0"
-            />
+            <>
+              {/* ponytail: NSE data is blocked in TradingView embeds (exchange licensing), BSE isn't — dual listings share the ticker */}
+              <iframe
+                title={`chart-${chartSymbol}`}
+                src={`https://s.tradingview.com/widgetembed/?symbol=${encodeURIComponent(`BSE:${chartSymbol}`)}&interval=D&hidesidetoolbar=1&theme=dark&style=1&locale=en`}
+                className="h-[70vh] w-full rounded-md border-0"
+              />
+              <a
+                href={`https://www.tradingview.com/chart/?symbol=${encodeURIComponent(`NSE:${chartSymbol}`)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+              >
+                BSE chart shown — open NSE chart on TradingView ↗
+              </a>
+            </>
           )}
         </DialogContent>
       </Dialog>
