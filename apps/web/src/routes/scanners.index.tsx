@@ -12,6 +12,7 @@ import {
 } from '#/components/ui/command'
 import { api, getAuthToken } from '#/lib/api'
 import { fuzzyMatch } from '#/lib/fuzzy'
+import { withLiquidityFloor } from '#/lib/scanner-rows'
 import type { ScanResult, ScannerSummary } from '#/lib/scanner-types'
 
 export const Route = createFileRoute('/scanners/')({
@@ -65,10 +66,14 @@ function ScannersPage() {
 
   async function selectScanner(s: ScannerSummary) {
     setQuery(''); setError(null)
-    setFilter(filterFromScanner(s))
+    const filter = filterFromScanner(s)
+    setFilter(filter)
     const seq = ++selectSeqRef.current
     try {
-      const data = await api.previewScanner(s.definition)
+      // Auto-preview applies the liquidity floor too — same as a manual
+      // Run in FilterPanel — so the initial result a user sees on
+      // selecting a saved scanner already matches what "Run" would show.
+      const data = await api.previewScanner(withLiquidityFloor(s.definition, filter.liquidOnly))
       if (seq === selectSeqRef.current) {
         setResult({ label: s.name, data })
         // Selecting a saved scanner previews it right away — treat that

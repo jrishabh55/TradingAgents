@@ -7,10 +7,12 @@ import {
 } from '#/components/ui/dialog'
 import { Input } from '#/components/ui/input'
 import { Label } from '#/components/ui/label'
+import { Switch } from '#/components/ui/switch'
 import { Textarea } from '#/components/ui/textarea'
 import { api } from '#/lib/api'
 import {
-  astToRows, canonicalScanJson, describeRow, emptyRow, rowsToAst, type BuilderState,
+  astToRows, canonicalScanJson, describeRow, emptyRow, rowsToAst, withLiquidityFloor,
+  type BuilderState,
 } from '#/lib/scanner-rows'
 import type { ScanGroup, ScanResult, ScannerSummary } from '#/lib/scanner-types'
 
@@ -45,6 +47,13 @@ export type ActiveFilter = {
    *  the collapsed summary bar. Null until a run (or an initial scanner
    *  preview) has completed. */
   matchCount: number | null
+  /** "Liquid only" toggle — 20d avg volume >= 100k. Applied at run time via
+   *  withLiquidityFloor (see FilterPanel::run), never merged into `state`/
+   *  `json`, never saved, and never part of dirty-detection. Defaults to
+   *  true for every freshly-created ActiveFilter (blank, NL-generated, or
+   *  loaded from a saved scanner) — it isn't part of the saved scanner
+   *  schema, so there's nothing to restore it from. */
+  liquidOnly: boolean
 }
 
 export function blankFilter(): ActiveFilter {
@@ -53,7 +62,7 @@ export function blankFilter(): ActiveFilter {
   return {
     origin: { kind: 'blank' }, state,
     json: JSON.stringify(def, null, 2), originalJson: canonicalScanJson(def), explanation: null,
-    collapsed: false, matchCount: null,
+    collapsed: false, matchCount: null, liquidOnly: true,
   }
 }
 
@@ -73,7 +82,7 @@ export function filterFromScanner(s: ScannerSummary): ActiveFilter {
     // Selecting a saved scanner previews it immediately (see
     // ScannersPage::selectScanner) — the caller flips this to true (and
     // fills matchCount) once that preview resolves.
-    collapsed: false, matchCount: null,
+    collapsed: false, matchCount: null, liquidOnly: true,
   }
 }
 
@@ -83,7 +92,7 @@ export function filterFromNl(query: string, definition: ScanGroup, explanation: 
     json: JSON.stringify(definition, null, 2),
     originalJson: canonicalScanJson(definition),
     explanation,
-    collapsed: false, matchCount: null,
+    collapsed: false, matchCount: null, liquidOnly: true,
   }
 }
 
@@ -131,7 +140,7 @@ export function FilterPanel({ filter, onChange, onClear, onSaved, onResult }: {
   async function run() {
     setBusy(true); setError(null)
     try {
-      const result = await api.previewScanner(currentDefinition(filter))
+      const result = await api.previewScanner(withLiquidityFloor(currentDefinition(filter), filter.liquidOnly))
       onResult(result, title)
       // Auto-collapse only on a *successful* run — editing conditions or a
       // failed run leaves the editor expanded (see module doc comment on
@@ -165,6 +174,9 @@ export function FilterPanel({ filter, onChange, onClear, onSaved, onResult }: {
             {filter.matchCount != null && (
               <span className="es-pill accent ml-1 shrink-0">{filter.matchCount} matches</span>
             )}
+            {filter.liquidOnly && (
+              <span className="es-chip shrink-0 text-muted-foreground">liquid</span>
+            )}
           </div>
           <div className="flex shrink-0 items-center gap-1">
             <Button size="sm" variant="ghost" className="h-6 px-2 text-xs text-primary"
@@ -191,6 +203,13 @@ export function FilterPanel({ filter, onChange, onClear, onSaved, onResult }: {
               <Button size="sm" onClick={() => setSaveOpen(true)} disabled={busy}>Save</Button>
               <Button size="sm" variant="ghost" onClick={onClear}>Clear</Button>
             </div>
+          </div>
+
+          <div className="flex items-center gap-2 px-1">
+            <Switch id="liquid-only" size="sm" checked={filter.liquidOnly}
+              onCheckedChange={(v) => onChange({ ...filter, liquidOnly: v })} />
+            <Label htmlFor="liquid-only" className="text-xs font-medium">Liquid only</Label>
+            <span className="text-xs text-muted-foreground">20d avg volume &ge; 100k</span>
           </div>
 
           {filter.explanation && (

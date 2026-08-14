@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  astToRows, canonicalScanJson, describeRow, emptyRow, rowsToAst, type Row,
+  astToRows, canonicalScanJson, describeRow, emptyRow, rowsToAst, withLiquidityFloor, type Row,
 } from './scanner-rows'
 import type { ScanGroup } from './scanner-types'
 
@@ -99,6 +99,25 @@ describe('canonicalScanJson', () => {
     const def: ScanGroup = { logic: 'AND', children: [{ timeframe: '1d', left: { pattern: 'doji' } }] }
     expect(astToRows(def)).toBeNull()
     expect(canonicalScanJson(def)).toBe(JSON.stringify(def))
+  })
+})
+
+describe('withLiquidityFloor', () => {
+  it('wraps the definition with the 20d avg-volume floor when on', () => {
+    const def: ScanGroup = { logic: 'AND', children: [SIMPLE.children[0]] }
+    const wrapped = withLiquidityFloor(def, true)
+    expect(wrapped).toEqual({
+      logic: 'AND',
+      children: [def, {
+        timeframe: '1d', left: { fn: 'SMA', of: 'volume', period: 20 },
+        op: '>', right: { const: 100000 },
+      }],
+    })
+  })
+
+  it('returns the definition unchanged when off', () => {
+    const def: ScanGroup = { logic: 'AND', children: [SIMPLE.children[0]] }
+    expect(withLiquidityFloor(def, false)).toBe(def)
   })
 })
 

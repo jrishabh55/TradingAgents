@@ -145,6 +145,25 @@ export function describeRow(row: Row): string {
   return `${operandLabel(row.left)} ${op} ${operandLabel(row.right)}${forSuffix} · ${row.timeframe}`
 }
 
+/** The scanner-workbench's "Liquid only" floor: 20d avg volume >= 100k on
+ *  the daily timeframe. Applied at run time only (see withLiquidityFloor)
+ *  — never merged into a saved/edited definition. */
+const LIQUIDITY_FLOOR_CONDITION: ScanCondition = {
+  timeframe: '1d',
+  left: { fn: 'SMA', of: 'volume', period: 20 },
+  op: '>',
+  right: { const: 100000 },
+}
+
+/** Wraps `def` with the liquidity floor condition (AND'd alongside it) when
+ *  `on` is true; returns `def` unchanged otherwise. Pure — callers apply
+ *  this only to the payload sent to previewScanner, never to what gets
+ *  saved or shown as the editable definition. */
+export function withLiquidityFloor(def: ScanGroup, on: boolean): ScanGroup {
+  if (!on) return def
+  return { logic: 'AND', children: [def, LIQUIDITY_FLOOR_CONDITION] }
+}
+
 export function astToRows(def: ScanGroup): BuilderState | null {
   const groups: BuilderState['groups'] = []
   const top: Row[] = []
