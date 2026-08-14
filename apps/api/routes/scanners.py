@@ -8,6 +8,7 @@ Routes:
   POST   /api/scanners/{sid}/run     run saved scanner
   POST   /api/scanners/preview       run an unsaved definition
   POST   /api/scanners/nl            natural language -> definition
+  GET    /api/scanners/status        data-freshness summary (universe + latest bar per timeframe)
 """
 from __future__ import annotations
 
@@ -61,9 +62,23 @@ def _owned_or_error(sid: str, user_id: str, *, for_write: bool) -> Dict[str, Any
     return scanner
 
 
+#: Timeframes surfaced on the workbench's "last data refresh" line — a
+#: subset of schema.TIMEFRAMES (no 1w/1mo: those aren't shown there).
+STATUS_TIMEFRAMES = ("1d", "1h", "15m", "5m")
+
+
 @router.get("/scanners")
 def list_scanners(user_id: str = Depends(current_user_id)) -> list:
     return get_scanner_store().list_scanners(user_id)
+
+
+@router.get("/scanners/status")
+def scanner_status(user_id: str = Depends(current_user_id)) -> dict:
+    store = get_scanner_store()
+    return {
+        "universe": len(store.instruments_df()),
+        "latest": {tf: store.latest_ts(tf) for tf in STATUS_TIMEFRAMES},
+    }
 
 
 @router.post("/scanners", status_code=201)

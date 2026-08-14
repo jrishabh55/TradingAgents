@@ -82,6 +82,24 @@ def test_engine_error_returns_422_not_500(env, monkeypatch):
     assert "scan failed" in r.json()["detail"]
 
 
+def test_status_shape(env):
+    client, store, _ = env
+    r = client.get("/api/scanners/status")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["universe"] == 2  # HI + LO, seeded by make_store
+    assert set(body["latest"]) == {"1d", "1h", "15m", "5m"}
+    assert body["latest"]["1d"] is not None  # make_store seeds 1d bars
+    assert body["latest"]["1h"] is None      # no 1h bars seeded
+
+
+def test_status_requires_auth():
+    app = FastAPI()
+    app.include_router(scanners_module.router, prefix="/api")
+    client = TestClient(app)
+    assert client.get("/api/scanners/status").status_code in (401, 403, 422)
+
+
 def test_invalid_definition_422(env):
     client, _, _ = env
     bad = {"logic": "AND", "children": [
