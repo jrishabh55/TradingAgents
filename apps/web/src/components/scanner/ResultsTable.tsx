@@ -82,7 +82,7 @@ export function ResultsTable({ result }: { result: ScanResult }) {
               <TableRow key={m.symbol} className="cursor-pointer"
                 onClick={() => setChartSymbol(m.symbol)}>
                 <TableCell className="es-mono font-medium text-primary">{m.symbol}</TableCell>
-                <TableCell className="max-w-48 truncate text-muted-foreground">{m.name}</TableCell>
+                <TableCell className="max-w-72 truncate text-muted-foreground">{m.name}</TableCell>
                 <TableCell className="text-muted-foreground">{m.sector ?? '—'}</TableCell>
                 <TableCell className="es-mono text-right tabular-nums">
                   {m.close?.toLocaleString() ?? '—'}

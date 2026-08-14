@@ -176,7 +176,7 @@ function ScannersPage() {
   return (
     <div className="min-h-screen">
       <Topbar state="idle" />
-      <main className="mx-auto max-w-6xl space-y-6 p-4">
+      <main className="mx-auto w-full max-w-[1800px] space-y-6 px-6 py-4">
         <h1 className="text-2xl font-bold">Scanners</h1>
 
         <div className="space-y-2">
