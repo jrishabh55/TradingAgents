@@ -117,11 +117,15 @@ def create_run(
     store = get_store()
     req_hash = request_hash(request)
 
-    # Cache lookup before submitting work. Shared cache across users — report
-    # content is a public-data analysis, not user-specific. To make the cache
-    # per-user, pass user_id=user_id below.
+    # Cache lookup before submitting work. Scoped per-user: GET /runs/{id}
+    # 404s runs the caller doesn't own, so a shared-cache hit on another
+    # user's run returned an id the frontend could never fetch. To share
+    # reports across users, clone the row for the caller instead of
+    # returning a foreign id.
     if not force:
-        cached = store.find_cached_run(req_hash, ttl_seconds=_cache_ttl_seconds())
+        cached = store.find_cached_run(
+            req_hash, ttl_seconds=_cache_ttl_seconds(), user_id=user_id
+        )
         if cached is not None:
             cached.cached = True
             response.status_code = status.HTTP_200_OK
