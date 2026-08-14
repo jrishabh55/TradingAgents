@@ -1,0 +1,6 @@
+{"name": "Gap down with volume", "description": "Opened 2%+ below yesterday's close and holding, on strong volume.",
+ "definition": {"logic": "AND", "children": [
+   {"timeframe": "1d", "left": {"field": "gap_pct"}, "op": "<", "right": {"const": -2}},
+   {"timeframe": "1d", "left": {"field": "close"}, "op": "<", "right": {"field": "open"}},
+   {"timeframe": "1d", "left": {"field": "volume"}, "op": ">",
+    "right": {"expr": "*", "args": [{"const": 1.5}, {"fn": "SMA", "of": "volume", "period": 20}]}}]}}

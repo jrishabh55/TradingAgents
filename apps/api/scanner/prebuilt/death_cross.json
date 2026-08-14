@@ -1,0 +1,4 @@
+{"name": "Death cross", "description": "SMA(50) crosses below SMA(200) on the daily.",
+ "definition": {"logic": "AND", "children": [
+   {"timeframe": "1d", "left": {"fn": "SMA", "of": "close", "period": 50},
+    "op": "crosses_below", "right": {"fn": "SMA", "of": "close", "period": 200}}]}}

@@ -1,0 +1,5 @@
+{"name": "15m VWAP reclaim", "description": "Price crosses back above VWAP with above-average volume, on the 15-minute chart.",
+ "definition": {"logic": "AND", "children": [
+   {"timeframe": "15m", "left": {"field": "close"}, "op": "crosses_above", "right": {"field": "vwap"}},
+   {"timeframe": "15m", "left": {"field": "volume"}, "op": ">",
+    "right": {"fn": "SMA", "of": "volume", "period": 20}}]}}

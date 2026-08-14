@@ -1,0 +1,6 @@
+{"name": "52-week-low breakdown", "description": "Close breaks the prior 250-bar low with above-average volume.",
+ "definition": {"logic": "AND", "children": [
+   {"timeframe": "1d", "left": {"field": "close"}, "op": "<",
+    "right": {"fn": "LOWEST", "of": "low", "period": 250, "bars_ago": 1}},
+   {"timeframe": "1d", "left": {"field": "volume"}, "op": ">",
+    "right": {"fn": "SMA", "of": "volume", "period": 20}}]}}

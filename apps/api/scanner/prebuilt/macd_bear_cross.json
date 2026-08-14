@@ -1,0 +1,4 @@
+{"name": "MACD bearish cross", "description": "MACD line crosses below its signal line on the daily.",
+ "definition": {"logic": "AND", "children": [
+   {"timeframe": "1d", "left": {"fn": "MACD"}, "op": "crosses_below",
+    "right": {"fn": "MACD", "component": "signal"}}]}}

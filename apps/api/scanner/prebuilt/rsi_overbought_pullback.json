@@ -1,0 +1,4 @@
+{"name": "RSI overbought pullback", "description": "RSI(14) crosses back below 70 from overbought.",
+ "definition": {"logic": "AND", "children": [
+   {"timeframe": "1d", "left": {"fn": "RSI", "of": "close", "period": 14},
+    "op": "crosses_below", "right": {"const": 70}}]}}

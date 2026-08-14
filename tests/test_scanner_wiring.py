@@ -27,6 +27,6 @@ def test_scanner_routes_mounted_and_prebuilt_seeded(tmp_path, monkeypatch):
         with TestClient(create_app()) as client:
             r = client.get("/api/scanners")
             assert r.status_code == 200
-            assert len([s for s in r.json() if s["prebuilt"]]) == 10
+            assert len([s for s in r.json() if s["prebuilt"]]) == 19
     finally:
         reset_verifier_for_tests()

@@ -1,0 +1,5 @@
+{"name": "Weekly momentum", "description": "Close above its 10-week SMA with RSI(14) above 55, on the weekly.",
+ "definition": {"logic": "AND", "children": [
+   {"timeframe": "1w", "left": {"field": "close"}, "op": ">",
+    "right": {"fn": "SMA", "of": "close", "period": 10}},
+   {"timeframe": "1w", "left": {"fn": "RSI", "of": "close", "period": 14}, "op": ">", "right": {"const": 55}}]}}

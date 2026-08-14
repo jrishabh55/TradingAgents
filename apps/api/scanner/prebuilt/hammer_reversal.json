@@ -1,0 +1,3 @@
+{"name": "Hammer reversal", "description": "Hammer candle on the daily.",
+ "definition": {"logic": "AND", "children": [
+   {"timeframe": "1d", "left": {"pattern": "hammer"}}]}}
