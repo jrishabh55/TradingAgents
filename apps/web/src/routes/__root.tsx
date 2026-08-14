@@ -9,6 +9,7 @@ import { HeadContent, Scripts, createRootRoute } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 
 import { api, isNotActivated } from '../lib/api'
+import { clerk } from '../lib/clerk'
 import appCss from '../styles.css?url'
 
 /* Vite exposes any env var prefixed with VITE_* to the browser bundle.
@@ -57,6 +58,10 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       </head>
       <body className="font-sans antialiased" suppressHydrationWarning>
         <ClerkProvider
+          /* The pre-constructed instance from lib/clerk.ts — the same one
+             getAuthToken() awaits, so loaders and components share auth
+             state by construction (no window.Clerk races). */
+          Clerk={clerk}
           publishableKey={PUBLISHABLE_KEY ?? ''}
           /* Without these, Clerk redirects post-sign-in to its hosted
              Account Portal at <app>.accounts.dev instead of back to
@@ -255,13 +260,15 @@ function SignInGate() {
           forceRedirectUrl="/"
           appearance={{
             variables: {
+              /* Clerk 6.14 renamed the appearance variables to the
+                 shadcn-style *Foreground scheme. */
               colorPrimary: '#4f7cff',
               colorBackground: '#101218',
-              colorText: '#e7e9ef',
-              colorInputBackground: '#161922',
-              colorInputText: '#e7e9ef',
-              colorTextSecondary: '#b4b9c6',
-              colorTextOnPrimaryBackground: '#ffffff',
+              colorForeground: '#e7e9ef',
+              colorInput: '#161922',
+              colorInputForeground: '#e7e9ef',
+              colorMutedForeground: '#b4b9c6',
+              colorPrimaryForeground: '#ffffff',
               colorNeutral: '#7d8499',
               borderRadius: '8px',
               fontFamily: 'inherit',

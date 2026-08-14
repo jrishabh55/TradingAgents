@@ -26,13 +26,7 @@ const LEGACY_TOKEN: string | undefined = (
   import.meta as unknown as { env?: { VITE_API_TOKEN?: string } }
 ).env?.VITE_API_TOKEN
 
-/* Clerk attaches itself to window.Clerk once <ClerkProvider> mounts. Reading
-   through this typed-any keeps the type surface small and avoids pulling
-   @clerk/types into modules that just need a token at call time. */
-type ClerkSession = { getToken: () => Promise<string | null> }
-type WindowWithClerk = Window & {
-  Clerk?: { load?: () => Promise<void>; session?: ClerkSession | null }
-}
+import { clerk, clerkReady } from './clerk'
 
 /** Resolve a JWT for the current session, awaiting Clerk hydration if needed.
  *
@@ -44,35 +38,13 @@ type WindowWithClerk = Window & {
  *
  *  Safe to call from anywhere — React component, router loader, plain async.
  */
-const CLERK_CONFIGURED = Boolean(
-  (import.meta as unknown as { env?: { VITE_CLERK_PUBLISHABLE_KEY?: string } })
-    .env?.VITE_CLERK_PUBLISHABLE_KEY,
-)
-
-/* window.Clerk only exists after <ClerkProvider> mounts, but route loaders run
-   BEFORE the React tree on a hard page load — returning null there sends the
-   loader's fetch out unauthenticated (401 "missing bearer token"). When Clerk
-   is configured it always shows up, so wait for it. */
-async function waitForClerk(): Promise<WindowWithClerk['Clerk']> {
-  const w = window as WindowWithClerk
-  if (!CLERK_CONFIGURED) return w.Clerk
-  for (let waited = 0; !w.Clerk && waited < 5000; waited += 50) {
-    await new Promise((r) => setTimeout(r, 50))
-  }
-  return w.Clerk
-}
-
 export async function getAuthToken(): Promise<string | null> {
   if (typeof window === 'undefined') return LEGACY_TOKEN ?? null
-  const clerk = await waitForClerk()
-  if (clerk) {
-    /* If <ClerkProvider> mounted but the session hasn't hydrated yet, load()
-       resolves once it has. Cheap on subsequent calls. */
-    if (clerk.load) await clerk.load()
-    const token = (await clerk.session?.getToken()) ?? null
-    if (token) return token
-  }
-  return LEGACY_TOKEN ?? null
+  /* Loaders can call this before <ClerkProvider> has mounted; clerkReady()
+     resolves once the shared instance (see lib/clerk.ts) finishes loading. */
+  await clerkReady()
+  const token = (await clerk.session?.getToken()) ?? null
+  return token ?? LEGACY_TOKEN ?? null
 }
 
 async function authHeaders(): Promise<Record<string, string>> {
