@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from datetime import datetime
 
 import pandas as pd
@@ -27,6 +28,9 @@ CHUNK = 100
 RETENTION = 320
 INTRADAY_REFRESH_SECONDS = 600
 EOD_HOUR_IST = 18  # refresh daily bars after 18:00 IST
+#: Sleep between yf.download chunks so a full-universe sweep doesn't hammer
+#: Yahoo with back-to-back batch requests. Module-level so tests can zero it.
+CHUNK_SLEEP_SECONDS = 1.0
 
 
 def refresh_timeframe(store: ScannerStore, timeframe: str) -> int:
@@ -50,6 +54,11 @@ def refresh_timeframe(store: ScannerStore, timeframe: str) -> int:
         except Exception as exc:  # noqa: BLE001 — partial universe beats no universe
             logger.warning("yf.download %s chunk %d failed: %s", timeframe, i, exc)
             continue
+        finally:
+            # Be polite to Yahoo across chunks of a full-universe sweep —
+            # skip the sleep after the last chunk, there's nothing after it.
+            if CHUNK_SLEEP_SECONDS and i + CHUNK < len(yf_symbols):
+                time.sleep(CHUNK_SLEEP_SECONDS)
     store.prune_bars(timeframe, keep=RETENTION)
     return written
 
