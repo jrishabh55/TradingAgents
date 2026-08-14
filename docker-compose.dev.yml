@@ -110,6 +110,13 @@ services:
       # forwards /api/* to http://api:8080. Wins over env_file's copy of
       # WEBAPP1_API_BASE (explicit `environment:` takes precedence).
       WEBAPP1_API_BASE: http://api:8080
+      # Run the dev SSR in Node, matching production (apps/web/Dockerfile
+      # builds with WEB_TARGET=node; Dokploy runs that Node server). The
+      # default (Cloudflare workerd emulation) is a runtime we don't deploy
+      # to anymore, and it breaks Clerk server auth in dev: workerd doesn't
+      # see container process.env (no CLERK_SECRET_KEY) and its bundled TLS
+      # trust store can't verify Clerk's API certs from inside the container.
+      WEB_TARGET: node
     ports:
       - "3000:3000"
     volumes:
