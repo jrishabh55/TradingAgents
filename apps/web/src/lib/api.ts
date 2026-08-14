@@ -44,9 +44,27 @@ type WindowWithClerk = Window & {
  *
  *  Safe to call from anywhere — React component, router loader, plain async.
  */
+const CLERK_CONFIGURED = Boolean(
+  (import.meta as unknown as { env?: { VITE_CLERK_PUBLISHABLE_KEY?: string } })
+    .env?.VITE_CLERK_PUBLISHABLE_KEY,
+)
+
+/* window.Clerk only exists after <ClerkProvider> mounts, but route loaders run
+   BEFORE the React tree on a hard page load — returning null there sends the
+   loader's fetch out unauthenticated (401 "missing bearer token"). When Clerk
+   is configured it always shows up, so wait for it. */
+async function waitForClerk(): Promise<WindowWithClerk['Clerk']> {
+  const w = window as WindowWithClerk
+  if (!CLERK_CONFIGURED) return w.Clerk
+  for (let waited = 0; !w.Clerk && waited < 5000; waited += 50) {
+    await new Promise((r) => setTimeout(r, 50))
+  }
+  return w.Clerk
+}
+
 export async function getAuthToken(): Promise<string | null> {
   if (typeof window === 'undefined') return LEGACY_TOKEN ?? null
-  const clerk = (window as WindowWithClerk).Clerk
+  const clerk = await waitForClerk()
   if (clerk) {
     /* If <ClerkProvider> mounted but the session hasn't hydrated yet, load()
        resolves once it has. Cheap on subsequent calls. */
