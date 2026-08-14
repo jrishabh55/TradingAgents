@@ -9,10 +9,12 @@ from tests.scanner_utils import make_store
 def test_seed_from_bundled_csv(tmp_path):
     store = make_store(tmp_path)
     n = seed_universe(store)
-    assert n > 400  # NIFTY500 snapshot
+    assert n > 1500  # all NSE mainboard EQ-series equities
     inst = store.instruments_df()
     assert (inst["yf_symbol"].str.endswith(".NS")).all()
-    assert "NIFTY500" in inst["index_memberships"].iloc[0]
+    assert set(inst.loc["RELIANCE", "index_memberships"]) == {"NIFTY50", "NIFTY500"}
+    non_index = inst[inst["index_memberships"].map(len) == 0]
+    assert len(non_index) > 0
 
 
 def test_seed_is_idempotent(tmp_path):
