@@ -8,9 +8,9 @@ importers:
 
   .:
     dependencies:
-      '@clerk/react':
-        specifier: ^6.14.2
-        version: 6.14.2(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      '@clerk/tanstack-react-start':
+        specifier: ^1.5.1
+        version: 1.5.1(@tanstack/react-router@1.169.1(react-dom@19.2.5(react@19.2.5))(react@19.2.5))(@tanstack/react-start@1.167.62(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(vite@8.0.10(@types/node@22.19.17)(esbuild@0.27.3)(jiti@2.6.1)(terser@5.50.0)))(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
       '@fontsource-variable/geist':
         specifier: ^5.2.8
         version: 5.2.8
@@ -281,6 +281,10 @@ packages:
     resolution: {integrity: sha512-ctxtJ/eA+t+6q2++vj5j7FYX3nRu311q1wfYH3xjlLOsczhlhxAg2FWNUXhpGvAw3BWo1xBcvOV6/YLc2r5FJw==}
     hasBin: true
 
+  '@clerk/backend@3.16.5':
+    resolution: {integrity: sha512-yi5AZdfmmYW8UZRFKw5k15Gh0JnzTdtmfw2lLmsGrcSIn6JcJYgsYGZBq+uBkZPsehqq3WlpSIS7FCG/DUfdXA==}
+    engines: {node: '>=20.9.0'}
+
   '@clerk/react@6.14.2':
     resolution: {integrity: sha512-n9GyAX0QE8mPczHdmfM+7SLkycGPUcEJLf/55KTb98nGo628vwXOX+GuAFwYHF1aJwQhAJSw4eKYI1/lIn87eg==}
     engines: {node: '>=20.9.0'}
@@ -299,6 +303,15 @@ packages:
         optional: true
       react-dom:
         optional: true
+
+  '@clerk/tanstack-react-start@1.5.1':
+    resolution: {integrity: sha512-3vOcd5d9H8LbdXn5NCXLdArJkbb9kl+gypvRda2MtlH+pIc0zgFiEDwpEj7wKlsIp0tubXRCzQWIxSnnKG+5Dg==}
+    engines: {node: '>=20.9.0'}
+    peerDependencies:
+      '@tanstack/react-router': ^1.168.10
+      '@tanstack/react-start': ^1.167.17
+      react: ^18.0.0 || ~19.0.3 || ~19.1.4 || ~19.2.3 || ~19.3.0-0
+      react-dom: ^18.0.0 || ~19.0.3 || ~19.1.4 || ~19.2.3 || ~19.3.0-0
 
   '@cloudflare/kv-asset-handler@0.5.0':
     resolution: {integrity: sha512-jxQYkj8dSIzc0cD6cMMNdOc1UVjqSqu8BZdor5s8cGjW2I8BjODt/kWPVdY+u9zj3ms75Q5qaZgnxUad83+eAg==}
@@ -1710,6 +1723,9 @@ packages:
   '@speed-highlight/core@1.2.15':
     resolution: {integrity: sha512-BMq1K3DsElxDWawkX6eLg9+CKJrTVGCBAWVuHXVUV2u0s2711qiChLSId6ikYPfxhdYocLNt3wWwSvDiTvFabw==}
 
+  '@stablelib/base64@1.0.1':
+    resolution: {integrity: sha512-1bnPQqSxSuc3Ii6MhBysoWCg58j97aUjuCSZrGSmDxNqtytIi0k8utUenAwTZN4V5mXXYGsVUI9zeBqy+jBOSQ==}
+
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
 
@@ -2688,6 +2704,9 @@ packages:
   fast-glob@3.3.3:
     resolution: {integrity: sha512-7MptL8U0cqcFdzIzwOTHoilX9x5BrNqye7Z/LuC7kCMRio1EMSyqRK3BEAUD7sXRq4iT4AzTVuZdhgQ2TCvYLg==}
     engines: {node: '>=8.6.0'}
+
+  fast-sha256@1.3.0:
+    resolution: {integrity: sha512-n11RGP/lrWEFI/bWdygLxhI+pVeo1ZYIVwvvPkW7azl/rOy+F3HYRZ2K5zeE9mmkhQppyv9sQFx0JM9UabnpPQ==}
 
   fast-string-truncated-width@3.0.3:
     resolution: {integrity: sha512-0jjjIEL6+0jag3l2XWWizO64/aZVtpiGE3t0Zgqxv0DPuxiMjvB3M24fCyhZUO4KomJQPj3LTSUnDP3GpdwC0g==}
@@ -3831,6 +3850,9 @@ packages:
   stackback@0.0.2:
     resolution: {integrity: sha512-1XMJE5fQo1jGH6Y/7ebnwPOBEkIEnT4QF32d5R1+VXdXveM0IBMJt8zfaxX1P3QhVwrYe+576+jkANtSS2mBbw==}
 
+  standardwebhooks@1.0.0:
+    resolution: {integrity: sha512-BbHGOQK9olHPMvQNHWul6MYlrRTAOKn03rOe4A8O3CLWhNf4YHBqq2HJKKC+sfqpxiBY52pNeesD6jIiLDz8jg==}
+
   statuses@2.0.2:
     resolution: {integrity: sha512-DvEy55V3DB7uknRo+4iOGT5fP1slR8wQohVdknigZPMpMstaKJQWhwiYBACJE3Ul2pTnATihhBYnRhZQHGBiRw==}
     engines: {node: '>= 0.8'}
@@ -4553,6 +4575,15 @@ snapshots:
     dependencies:
       css-tree: 3.2.1
 
+  '@clerk/backend@3.16.5(react-dom@19.2.5(react@19.2.5))(react@19.2.5)':
+    dependencies:
+      '@clerk/shared': 4.29.0(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      standardwebhooks: 1.0.0
+      tslib: 2.8.1
+    transitivePeerDependencies:
+      - react
+      - react-dom
+
   '@clerk/react@6.14.2(react-dom@19.2.5(react@19.2.5))(react@19.2.5)':
     dependencies:
       '@clerk/shared': 4.29.0(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
@@ -4569,6 +4600,17 @@ snapshots:
     optionalDependencies:
       react: 19.2.5
       react-dom: 19.2.5(react@19.2.5)
+
+  '@clerk/tanstack-react-start@1.5.1(@tanstack/react-router@1.169.1(react-dom@19.2.5(react@19.2.5))(react@19.2.5))(@tanstack/react-start@1.167.62(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(vite@8.0.10(@types/node@22.19.17)(esbuild@0.27.3)(jiti@2.6.1)(terser@5.50.0)))(react-dom@19.2.5(react@19.2.5))(react@19.2.5)':
+    dependencies:
+      '@clerk/backend': 3.16.5(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      '@clerk/react': 6.14.2(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      '@clerk/shared': 4.29.0(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      '@tanstack/react-router': 1.169.1(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      '@tanstack/react-start': 1.167.62(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(vite@8.0.10(@types/node@22.19.17)(esbuild@0.27.3)(jiti@2.6.1)(terser@5.50.0))
+      react: 19.2.5
+      react-dom: 19.2.5(react@19.2.5)
+      tslib: 2.8.1
 
   '@cloudflare/kv-asset-handler@0.5.0': {}
 
@@ -5874,6 +5916,8 @@ snapshots:
 
   '@speed-highlight/core@1.2.15': {}
 
+  '@stablelib/base64@1.0.1': {}
+
   '@standard-schema/spec@1.1.0': {}
 
   '@tailwindcss/node@4.2.4':
@@ -6950,6 +6994,8 @@ snapshots:
       glob-parent: 5.1.2
       merge2: 1.4.1
       micromatch: 4.0.8
+
+  fast-sha256@1.3.0: {}
 
   fast-string-truncated-width@3.0.3: {}
 
@@ -8407,6 +8453,11 @@ snapshots:
   srvx@0.12.5: {}
 
   stackback@0.0.2: {}
+
+  standardwebhooks@1.0.0:
+    dependencies:
+      '@stablelib/base64': 1.0.1
+      fast-sha256: 1.3.0
 
   statuses@2.0.2: {}
 
