@@ -124,12 +124,15 @@ function safeCanonicalJson(filter: ActiveFilter): string | null {
   }
 }
 
-export function FilterPanel({ filter, onChange, onClear, onSaved, onResult }: {
+export function FilterPanel({ filter, onChange, onClear, onSaved, onResult, previewing = false }: {
   filter: ActiveFilter
   onChange: (f: ActiveFilter) => void
   onClear: () => void
   onSaved: (scanner: ScannerSummary, wasUpdate: boolean) => void
   onResult: (result: ScanResult, label: string) => void
+  /** True while the page-level auto-preview (scanner selection) is in flight —
+   *  the collapsed bar shows a scanning pill instead of a stale/absent count. */
+  previewing?: boolean
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -185,7 +188,12 @@ export function FilterPanel({ filter, onChange, onClear, onSaved, onResult }: {
             {chips.map((c, i) => (
               <span key={i} className="es-chip">{c}</span>
             ))}
-            {filter.matchCount != null && (
+            {previewing ? (
+              <span className="es-pill run ml-1 shrink-0">
+                <span className="es-dot pulse" />
+                Scanning…
+              </span>
+            ) : filter.matchCount != null && (
               <span className="es-pill accent ml-1 shrink-0">{filter.matchCount} matches</span>
             )}
             {filter.liquidOnly && (

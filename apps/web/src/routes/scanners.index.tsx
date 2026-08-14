@@ -61,6 +61,7 @@ function ScannersPage() {
   const [manageOpen, setManageOpen] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [pickerQuery, setPickerQuery] = useState('')
+  const [previewing, setPreviewing] = useState(false)
   const [status, setStatus] = useState<ScannerStatus | null>(null)
   const resultsRef = useRef<HTMLElement>(null)
   // Guards against rapid successive selectScanner calls resolving out of
@@ -115,6 +116,7 @@ function ScannersPage() {
     const filter = filterFromScanner(s, { collapsed: true })
     setFilter(filter)
     const seq = ++selectSeqRef.current
+    setPreviewing(true)
     try {
       // Auto-preview applies the liquidity floor too — same as a manual
       // Run in FilterPanel — so the initial result a user sees on
@@ -126,6 +128,8 @@ function ScannersPage() {
       }
     } catch (e) {
       if (seq === selectSeqRef.current) setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      if (seq === selectSeqRef.current) setPreviewing(false)
     }
   }
 
@@ -244,7 +248,7 @@ function ScannersPage() {
 
         {filter && (
           <FilterPanel filter={filter} onChange={setFilter} onClear={clearFilter}
-            onSaved={handleSaved} onResult={applyResult} />
+            onSaved={handleSaved} onResult={applyResult} previewing={previewing} />
         )}
 
         <section className="space-y-2">
@@ -273,15 +277,36 @@ function ScannersPage() {
           )}
         </section>
 
+        {previewing && !result && (
+          <section className="py-2">
+            <span className="es-pill run">
+              <span className="es-dot pulse" />
+              Scanning…
+            </span>
+          </section>
+        )}
         {result && (
           <section ref={resultsRef} className="scroll-mt-4 space-y-3">
-            <div className="space-y-0.5">
-              <div className="es-team-label">Results</div>
-              <h2 className="text-lg font-semibold">
-                {result.label} ({result.data.matches.length})
-              </h2>
+            <div className="flex items-center gap-3">
+              <div className="space-y-0.5">
+                <div className="es-team-label">Results</div>
+                <h2 className="text-lg font-semibold">
+                  {result.label} ({result.data.matches.length})
+                </h2>
+              </div>
+              {previewing && (
+                <span className="es-pill run">
+                  <span className="es-dot pulse" />
+                  Scanning…
+                </span>
+              )}
             </div>
-            <ResultsTable result={result.data} />
+            {/* Stale table dims while the next scanner's preview is in
+                flight — switching scanners must never look like nothing
+                happened. */}
+            <div className={previewing ? 'pointer-events-none opacity-40 transition-opacity' : 'transition-opacity'}>
+              <ResultsTable result={result.data} />
+            </div>
           </section>
         )}
 
