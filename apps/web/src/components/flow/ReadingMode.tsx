@@ -73,7 +73,7 @@ export function ReadingMode({ run }: { run: RunDetail }) {
   const failed = run.status === 'failed' || run.status === 'cancelled'
 
   return (
-    <div className="es-art" style={{ background: '#0c0e14' }}>
+    <div className="es-art">
       <Topbar
         ticker={run.ticker}
         date={run.analysis_date}
