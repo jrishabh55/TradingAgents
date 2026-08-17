@@ -87,6 +87,14 @@ class ScannerStore:
             c.executemany(
                 "INSERT OR REPLACE INTO bars (symbol,timeframe,ts,open,high,low,close,volume) "
                 "VALUES (?,?,?,?,?,?,?,?)", rows)
+
+    def bump_bar_version(self) -> None:
+        """Publish written bars to scan engines (they cache panels keyed on
+        version()). Deliberately NOT part of upsert_bars: the ingest loop
+        writes one chunk at a time across a multi-minute sweep, and a bump
+        per chunk made every scan landing mid-sweep pay a full cold panel
+        rebuild. Writers bump once per cycle, right before engine.warm()."""
+        with self._conn() as c:
             c.execute(
                 "INSERT INTO meta (k, v) VALUES ('bar_version', '1') "
                 "ON CONFLICT(k) DO UPDATE SET v = CAST(CAST(v AS INTEGER) + 1 AS TEXT)")

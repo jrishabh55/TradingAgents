@@ -65,9 +65,16 @@ class ScanEngine:
     def warm(self) -> None:
         """Pre-build every panel after an ingest cycle so no user request pays
         the cold rebuild (~seconds at full-universe size). Called from the
-        ingest loop right after bars land; user scans hitting mid-warm simply
-        wait on the same lock they'd otherwise hold while rebuilding."""
-        self._resolve_panels({"1d", "1h", "15m", "5m", "1w"})
+        ingest loop right after the cycle's version bump. Builds run OUTSIDE
+        the lock — concurrent scans keep serving the previous snapshot (or
+        rebuild for themselves if they observed the bump first) — then the
+        cache swaps in one atomic assignment."""
+        v = self._store.version()
+        fresh = {tf: self._build_panel(tf)
+                 for tf in ("1d", "1h", "15m", "5m", "1w", "1mo")}
+        with self._lock:
+            self._panels = fresh
+            self._version = v
 
     def _resolve_panels(self, timeframes: Set[str]) -> PanelMap:
         """Per-run snapshot: check the store version exactly once, refresh the

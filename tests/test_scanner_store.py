@@ -8,6 +8,9 @@ def test_bars_roundtrip_and_version(tmp_path):
     assert store.version() == 0
     assert store.latest_ts("1d") is None
     store.upsert_bars("1d", bars_long("TCS", [100, 101, 102]))
+    # Writes alone don't publish — the ingest cycle bumps once at the end.
+    assert store.version() == 0
+    store.bump_bar_version()
     assert store.version() == 1
     df = store.load_bars("1d")
     assert list(df["close"]) == [100, 101, 102]

@@ -162,6 +162,7 @@ def test_panel_cache_invalidation(tmp_path):
     assert [m["symbol"] for m in res1["matches"]] == ["A"]
 
     store.upsert_bars("1d", bars_long("A", [50.0] * 30))
+    store.bump_bar_version()
 
     res2 = engine.run(definition)
     assert res2["matches"] == []
@@ -227,7 +228,7 @@ def test_warm_prebuilds_all_panels(tmp_path):
     store = make_store(tmp_path, {"A": [101.0] * 30})
     engine = ScanEngine(store)
     engine.warm()
-    assert {"1d", "1h", "15m", "5m", "1w"} <= set(engine._panels)
+    assert {"1d", "1h", "15m", "5m", "1w", "1mo"} <= set(engine._panels)
     # A scan after warm() must not rebuild (same store version -> cache hit).
     v = engine._version
     run_def = parse_definition(

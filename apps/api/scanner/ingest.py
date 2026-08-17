@@ -89,12 +89,14 @@ def refresh_all(store: ScannerStore) -> None:
         logger.info("scanner ingest: %s -> %d bars", tf, n)
 
 
-def _warm_engine() -> None:
-    """Pre-build scan panels after bars land — the first scan after every
-    refresh otherwise pays a multi-second cold rebuild. Late import: engine
+def _publish_and_warm() -> None:
+    """Bump the bar version (once per cycle — see bump_bar_version) and
+    pre-build scan panels, so scans serve the previous snapshot during a
+    sweep and never pay the cold rebuild themselves. Late import: engine
     imports the store module; keeping ingest's import lazy avoids a cycle."""
     from apps.api.scanner.engine import get_engine
 
+    get_scanner_store().bump_bar_version()
     try:
         get_engine().warm()
     except Exception:  # noqa: BLE001 — warmup is an optimization, never fatal
@@ -110,11 +112,11 @@ async def ingest_loop() -> None:
     if store.latest_ts("1d") is None:
         logger.info("scanner initial backfill starting")
         await asyncio.to_thread(refresh_all, store)
-        await asyncio.to_thread(_warm_engine)
         # Fresh deploys would otherwise sit with NULL sectors/fundamentals
         # until the first Saturday sweep — enrich right after the initial
         # backfill instead, and mark this week done so Saturday doesn't redo it.
         await asyncio.to_thread(enrich_universe, store)
+        await asyncio.to_thread(_publish_and_warm)
         now0 = datetime.now(IST)
         enrich_done_for = f"{now0.isocalendar().year}-{now0.isocalendar().week}"
 
@@ -128,18 +130,21 @@ async def ingest_loop() -> None:
                 last_intraday = loop_t
                 for tf in ("5m", "15m", "1h"):
                     await asyncio.to_thread(refresh_timeframe, store, tf)
-                await asyncio.to_thread(_warm_engine)
+                await asyncio.to_thread(_publish_and_warm)
             today = now.date().isoformat()
             if (is_trading_day(now.date()) and now.hour >= EOD_HOUR_IST
                     and eod_done_for != today):
                 eod_done_for = today
                 await asyncio.to_thread(refresh_timeframe, store, "1d")
-                await asyncio.to_thread(_warm_engine)
+                await asyncio.to_thread(_publish_and_warm)
             # Weekly fundamentals sweep on Saturdays.
             week = f"{now.isocalendar().year}-{now.isocalendar().week}"
             if now.weekday() == 5 and enrich_done_for != week:
                 enrich_done_for = week
                 await asyncio.to_thread(enrich_universe, store)
+                # Panels embed fundamentals/meta — republish so the fresh
+                # enrichment is visible before the next bar refresh.
+                await asyncio.to_thread(_publish_and_warm)
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001 — the loop must survive any single failure
