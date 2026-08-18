@@ -28,6 +28,13 @@ def test_refresh_writes_bars(tmp_path):
     df = store.load_bars("1d")
     assert set(df["symbol"]) == {"TCS", "INFY"}
     assert dl.call_args.kwargs["interval"] == "1d"
+    # explicit clamped start, never `period` — period lets yfinance request
+    # from a young ticker's first-trade date, which Yahoo rejects once it
+    # ages past the intraday window
+    assert "period" not in dl.call_args.kwargs
+    from datetime import datetime, timedelta, timezone
+    start = dl.call_args.kwargs["start"]
+    assert timedelta(0) < datetime.now(timezone.utc) - start < timedelta(days=730)
 
 
 def test_refresh_skips_symbols_with_no_data(tmp_path):

@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 import yfinance as yf
@@ -21,9 +21,14 @@ from apps.api.scanner.universe import enrich_universe, seed_universe
 
 logger = logging.getLogger(__name__)
 
-#: timeframe -> (yfinance period, yfinance interval)
-TF_FETCH = {"1d": ("2y", "1d"), "1h": ("730d", "1h"),
-            "15m": ("60d", "15m"), "5m": ("60d", "5m")}
+#: timeframe -> (yfinance interval, lookback days). Passed as an explicit
+#: `start` rather than `period`: with `period`, yfinance substitutes a
+#: recently-listed ticker's first-trade date as the start, and once that date
+#: ages past Yahoo's intraday window (730d for 1h, 60d for 15m/5m) every
+#: request for that ticker is rejected forever. Lookbacks sit 1d inside the
+#: window so clock skew can't trip the limit.
+TF_FETCH = {"1d": ("1d", 729), "1h": ("1h", 729),
+            "15m": ("15m", 59), "5m": ("5m", 59)}
 CHUNK = 100
 RETENTION = 320
 INTRADAY_REFRESH_SECONDS = 600
@@ -34,7 +39,8 @@ CHUNK_SLEEP_SECONDS = 1.0
 
 
 def refresh_timeframe(store: ScannerStore, timeframe: str) -> int:
-    period, interval = TF_FETCH[timeframe]
+    interval, lookback_days = TF_FETCH[timeframe]
+    start = datetime.now(timezone.utc) - timedelta(days=lookback_days)
     inst = store.instruments_df()
     if inst.empty:
         return 0
@@ -44,7 +50,7 @@ def refresh_timeframe(store: ScannerStore, timeframe: str) -> int:
     for i in range(0, len(yf_symbols), CHUNK):
         chunk = yf_symbols[i:i + CHUNK]
         try:
-            data = yf.download(tickers=" ".join(chunk), period=period,
+            data = yf.download(tickers=" ".join(chunk), start=start,
                                interval=interval, group_by="ticker",
                                auto_adjust=False, threads=True, progress=False)
             long = _to_long(data, chunk, yf_to_ours)
